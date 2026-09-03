@@ -1,0 +1,55 @@
+name: Build macOS (manual, unsigned)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: macos-companion
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: npm ci
+      - run: npm run prepare-assets
+      - run: npm test
+      - name: Shared lifecycle regression
+        run: |
+          node ../tests/test-activity-state.js
+          node ../tests/test-task-scope.js
+          node --test ../tests/test-source-audit.cjs
+          node ../scripts/Audit-Source.cjs
+      - name: Syntax-check source launcher
+        run: zsh -n Start.command
+      - name: Isolated Electron renderer smoke test
+        run: npx --no-install electron . --demo --smoke-test
+        env:
+          YANXIAOBEI_DATA_DIR: ${{ runner.temp }}/yanxiaobei-smoke
+      - name: Build unsigned artifacts
+        run: npm run dist:${{ matrix.arch }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bjut-yanxiaobei-macos-${{ matrix.arch }}-unsigned
+          path: |
+            macos-companion/dist/*.dmg
+            macos-companion/dist/*.zip
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,125 @@
+{
+  "ok": true,
+  "chroma_key": {
+    "hex": "#00FF00",
+    "rgb": [
+      0,
+      255,
+      0
+    ],
+    "threshold": 96.0
+  },
+  "rows": [
+    {
+      "state": "idle",
+      "frames": [
+        "idle/00.png",
+        "idle/01.png",
+        "idle/02.png",
+        "idle/03.png",
+        "idle/04.png",
+        "idle/05.png"
+      ],
+      "method": "atlas-cell-copy"
+    },
+    {
+      "state": "running-right",
+      "frames": [
+        "running-right/00.png",
+        "running-right/01.png",
+        "running-right/02.png",
+        "running-right/03.png",
+        "running-right/04.png",
+        "running-right/05.png",
+        "running-right/06.png",
+        "running-right/07.png"
+      ],
+      "method": "atlas-cell-copy"
+    },
+    {
+      "state": "running-left",
+      "frames": [
+        "running-left/00.png",
+        "running-left/01.png",
+        "running-left/02.png",
+        "running-left/03.png",
+        "running-left/04.png",
+        "running-left/05.png",
+        "running-left/06.png",
+        "running-left/07.png"
+      ],
+      "method": "atlas-cell-copy"
+    },
+    {
+      "state": "waving",
+      "frames": [
+        "waving/00.png",
+        "waving/01.png",
+        "waving/02.png",
+        "waving/03.png"
+      ],
+      "method": "atlas-cell-copy"
+    },
+    {
+      "state": "jumping",
+      "frames": [
+        "jumping/00.png",
+        "jumping/01.png",
+        "jumping/02.png",
+        "jumping/03.png",
+        "jumping/04.png"
+      ],
+      "method": "atlas-cell-copy"
+    },
+    {
+      "state": "failed",
+      "frames": [
+        "failed/00.png",
+        "failed/01.png",
+        "failed/02.png",
+        "failed/03.png",
+        "failed/04.png",
+        "failed/05.png",
+        "failed/06.png",
+        "failed/07.png"
+      ],
+      "method": "atlas-cell-copy"
+    },
+    {
+      "state": "waiting",
+      "frames": [
+        "waiting/00.png",
+        "waiting/01.png",
+        "waiting/02.png",
+        "waiting/03.png",
+        "waiting/04.png",
+        "waiting/05.png"
+      ],
+      "method": "atlas-cell-copy"
+    },
+    {
+      "state": "running",
+      "frames": [
+        "running/00.png",
+        "running/01.png",
+        "running/02.png",
+        "running/03.png",
+        "running/04.png",
+        "running/05.png"
+      ],
+      "method": "atlas-cell-copy"
+    },
+    {
+      "state": "review",
+      "frames": [
+        "review/00.png",
+        "review/01.png",
+        "review/02.png",
+        "review/03.png",
+        "review/04.png",
+        "review/05.png"
+      ],
+      "method": "atlas-cell-copy"
+    }
+  ]
+}

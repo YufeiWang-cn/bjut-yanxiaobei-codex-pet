@@ -1,0 +1,32 @@
+{
+  "name": "bjut-yanxiaobei-macos",
+  "version": "0.2.2",
+  "private": true,
+  "description": "个人制作的 BJUT 燕小北 Codex macOS 桌面助手",
+  "author": "BJUT YanXiaoBei project author",
+  "license": "MIT",
+  "main": "main.cjs",
+  "engines": { "node": ">=22.12.0" },
+  "scripts": {
+    "prepare-assets": "node scripts/prepare-assets.cjs",
+    "prestart": "npm run prepare-assets",
+    "start": "electron .",
+    "demo": "npm run prepare-assets && electron . --demo",
+    "test": "node --test tests/*.test.cjs",
+    "pack:arm64": "npm run prepare-assets && electron-builder --mac dir --arm64 --publish never",
+    "pack:x64": "npm run prepare-assets && electron-builder --mac dir --x64 --publish never",
+    "dist:arm64": "npm run prepare-assets && electron-builder --mac dmg zip --arm64 --publish never",
+    "dist:x64": "npm run prepare-assets && electron-builder --mac dmg zip --x64 --publish never"
+  },
+  "devDependencies": { "electron": "44.1.1", "electron-builder": "26.15.3" },
+  "build": {
+    "appId": "personal.bjut.yanxiaobei",
+    "productName": "BJUT YanXiaoBei",
+    "artifactName": "bjut-yanxiaobei-macos-${version}-${arch}.${ext}",
+    "asar": true,
+    "files": ["main.cjs", "preload.cjs", "lib/**", "ui/**", "assets/**", "package.json"],
+    "extraResources": [{ "from": "runtime", "to": "runtime", "filter": ["*.js"] }],
+    "directories": { "output": "dist" },
+    "mac": { "category": "public.app-category.developer-tools", "identity": null, "minimumSystemVersion": "13.0" }
+  }
+}

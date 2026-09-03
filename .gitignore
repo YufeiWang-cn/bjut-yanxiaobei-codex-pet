@@ -1,0 +1,36 @@
+# Local app state and credentials must never enter the repository.
+.codex/
+.env
+.env.*
+!.env.example
+auth.json
+bridge-state.json
+badge-position.json
+ui-settings.json
+mac-settings.json
+autostart-*.flag
+sessions/
+logs/
+*.log
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.p12
+*.pfx
+*.pem
+*.key
+*.lnk
+
+# Generated tests and release archives
+.test-output/
+.release-backups/
+dist/
+*.zip
+*.dmg
+node_modules/
+__pycache__/
+*.pyc
+Thumbs.db
+Desktop.ini
+.DS_Store

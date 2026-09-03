@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>BJUT 燕小北</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="shell">
+    <section id="pet-body" aria-label="燕小北，双击打开 Codex，右键打开菜单" data-drag>
+      <img id="sprite" src="assets/frames/idle/00.png" width="124" height="135" alt="燕小北" draggable="false">
+      <span id="caption">连接中</span>
+    </section>
+    <section id="panels">
+      <section class="panel" id="quota" aria-label="额度气泡">
+        <header data-drag><span id="dot"></span><strong>燕小北</strong><span id="state-label">连接中</span><button id="refresh" title="刷新额度和任务" aria-label="刷新">↻</button><button id="close-quota" title="隐藏额度气泡" aria-label="隐藏额度气泡">×</button></header>
+        <button id="summary" title="展开或收起任务队列"><span>任务 <b id="total">--</b></span><span>进行 <b id="running">--</b></span><span>等待 <b id="waiting">--</b></span><span>完成 <b id="ready">--</b></span><span id="arrow">▾</span></button>
+        <div class="quota-row"><span class="period">5H</span><div class="quota-body"><div class="quota-text"><strong id="five-value">-- 剩余</strong><span id="five-time">等待连接</span></div><div class="rail"><progress id="five-bar" max="100" value="0" aria-label="五小时剩余额度"></progress></div></div></div>
+        <div class="quota-row"><span class="period week">7D</span><div class="quota-body"><div class="quota-text"><strong id="week-value">-- 剩余</strong><span id="week-time">等待连接</span></div><div class="rail"><progress id="week-bar" max="100" value="0" aria-label="每周剩余额度"></progress></div></div></div>
+        <footer><span id="quota-status">等待额度数据</span><span id="reset" title="仅展示可重置次数，不会执行重置">重置 --</span></footer>
+      </section>
+      <section class="panel" id="tasks" hidden aria-label="任务活动">
+        <header data-drag><strong>任务活动</strong><span id="task-count">-- 项</span><button id="clear" title="清除完成与错误提醒" aria-label="清除提醒">✓</button><button id="collapse" title="收起任务队列" aria-label="收起任务队列">▴</button></header>
+        <div id="task-list"></div><p id="empty">状态暂不可用，连接后更新</p>
+      </section>
+    </section>
+    <div id="toast" role="status" hidden></div>
+  </main>
+  <script src="renderer.js"></script>
+</body>
+</html>
