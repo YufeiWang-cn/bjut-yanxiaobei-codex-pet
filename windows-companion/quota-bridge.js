@@ -19,6 +19,9 @@ let logCarry = '';
 const pending = new Map();
 const activity = new Map();
 const ledger = new ActivityLedger(activity);
+// Recent desktop approval-response logs omit conversationId. Keep the owning
+// task by request ID so only the matching waiting state is released.
+const approvalThreads = new Map();
 const observedThreads = new Set();
 const monitorStartedAt = Date.now();
 const threadMetadata = new Map();
@@ -143,6 +146,12 @@ function markReady(threadId, timestamp, turnId) {
 function markFailed(threadId, timestamp, turnId) {
   ledger.finish(threadId, 'failed', timestamp, turnId);
 }
+function forgetApprovals(threadId) {
+  if (!threadId) return;
+  for (const [requestId, owner] of approvalThreads) {
+    if (owner === threadId) approvalThreads.delete(requestId);
+  }
+}
 
 function cleanTitle(value) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 80);
@@ -190,10 +199,14 @@ function readSessionIndexTitles() {
 
 function processLogLine(line) {
   if (!line) return;
-  const threadId = extractConversationId(line);
+  let threadId = extractConversationId(line);
   const timestamp = lineTimestamp(line);
   const turnId = line.match(/(?:turnId|latestTurnId)=([0-9a-f-]{20,})/i)?.[1] || null;
-  const requestId = line.match(/(?:serverRequestId|requestId)=([^\s]+)/i)?.[1] || null;
+  const approvalMethod = /item\/(?:commandExecution|fileChange|permissions)\/requestApproval|item\/tool\/requestUserInput/i.test(line);
+  const isApprovalResponse = line.includes('Sending server response') && approvalMethod;
+  const requestId = line.match(/(?:serverRequestId|requestId)=([^\s]+)/i)?.[1]
+    || (isApprovalResponse ? line.match(/\bid=([^\s]+)/i)?.[1] : null);
+  if (!threadId && isApprovalResponse && requestId) threadId = approvalThreads.get(requestId) || null;
 
   const isStart = line.includes('Reasoning summary turn-start config resolved')
     || line.includes('Received turn/started for unknown conversation');
@@ -201,10 +214,8 @@ function processLogLine(line) {
     || line.includes('Received turn/completed for unknown conversation');
   const isFailure = line.includes('[desktop-notifications] show turn-failed')
     || line.includes('[desktop-notifications] show turn-error');
-  const isWaiting = /item\/(?:commandExecution|fileChange|permissions)\/requestApproval/i.test(line)
-    || line.includes('item/tool/requestUserInput')
-    || line.includes('request_user_input');
-  const isResolved = line.includes('serverRequest/resolved');
+  const isWaiting = !isApprovalResponse && (approvalMethod || line.includes('request_user_input'));
+  const isResolved = line.includes('serverRequest/resolved') || isApprovalResponse;
   const isStopped = line.includes('method=turn/interrupt') && line.includes('errorCode=null');
   const isProgress = line.includes('Reasoning summary item completed')
     || line.includes('Reasoning summary part added');
@@ -214,21 +225,27 @@ function processLogLine(line) {
 
   if (sessionReader.scopes.get(threadId) === 'excluded') return;
   if (isStart) ledger.start(threadId, timestamp, turnId);
-  else if (isStopped) ledger.finish(threadId, 'stopped', timestamp, turnId);
-  else if (isFailure) ledger.finish(threadId, 'failed', timestamp, turnId, timestamp < monitorStartedAt);
+  else if (isStopped) { ledger.finish(threadId, 'stopped', timestamp, turnId); forgetApprovals(threadId); }
+  else if (isFailure) { ledger.finish(threadId, 'failed', timestamp, turnId, timestamp < monitorStartedAt); forgetApprovals(threadId); }
   else if (isComplete) {
     // Untagged notifications must not complete a newer, session-identified turn.
     if (turnId || !ledger.latest.get(threadId)?.confirmed) ledger.finish(threadId, 'ready', timestamp, turnId, timestamp < monitorStartedAt);
+    forgetApprovals(threadId);
   }
   else if (line.includes('maybe_resume_success') && turnId && /latestTurnStatus=(completed|interrupted|failed)\b/.test(line)) {
     // A resumed thread can expose a terminal status even after an app crash
     // prevented its final session event from being flushed.
     const status = line.match(/latestTurnStatus=(\w+)/)[1];
     ledger.reconcile(threadId, status === 'completed' ? 'ready' : status === 'failed' ? 'failed' : 'stopped', timestamp, turnId);
+    forgetApprovals(threadId);
   }
-  else if (isWaiting) ledger.wait(threadId, timestamp, requestId);
+  else if (isWaiting) {
+    if (threadId && requestId) approvalThreads.set(requestId, threadId);
+    ledger.wait(threadId, timestamp, requestId);
+  }
   else if (isResolved || isProgress) {
     ledger.progress(threadId, timestamp, isResolved, requestId);
+    if (isResolved && requestId) approvalThreads.delete(requestId);
   }
 }
 
@@ -338,7 +355,7 @@ function emitPetState() {
   else if (active > 0) { petState = 'running'; label = '思考中'; }
 
   const payload = {
-    type: 'pet-state', bridgeVersion: '0.2.2', petState, label,
+    type: 'pet-state', bridgeVersion: '0.2.3', petState, label,
     counts: { total: tasks.length, active: active + waiting, running: active, waiting, ready, failed },
     tasks,
     source: sessionSourceAvailable ? 'session-events+desktop-log' : currentLogPath ? 'desktop-log' : 'unavailable',
@@ -420,7 +437,7 @@ function startAppServer() {
   send({
     id: 1, method: 'initialize',
     params: {
-      clientInfo: { name: 'bjut-yanxiaobei-codex-pet', title: 'BJUT YanXiaoBei Codex Pet', version: '0.2.2' },
+      clientInfo: { name: 'bjut-yanxiaobei-codex-pet', title: 'BJUT YanXiaoBei Codex Pet', version: '0.2.3' },
       capabilities: { experimentalApi: true, requestAttestation: false, optOutNotificationMethods: [] },
     },
   });

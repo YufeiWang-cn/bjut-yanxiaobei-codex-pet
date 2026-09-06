@@ -11,6 +11,9 @@ function setup() { const map = new Map(); return { map, ledger: new ActivityLedg
 function event(type, at, turn = 'turn-a', extra = {}) {
   return JSON.stringify({ type: 'event_msg', timestamp: new Date(at).toISOString(), payload: { type, turn_id: turn, ...extra } }) + '\n';
 }
+function responseItem(type, at, extra = {}) {
+  return JSON.stringify({ type: 'response_item', timestamp: new Date(at).toISOString(), payload: { type, ...extra } }) + '\n';
+}
 test('13:13:40 completion without desktop notification overrides thinking', () => {
   const {map, ledger} = setup();
   const start = Date.parse('2026-09-03T05:08:08.949Z');
@@ -82,6 +85,24 @@ test('only structured lifecycle envelopes count; message/tool errors do not', ()
   assert.equal(sessionEvent(event('task_failed', 100)).state, 'failed');
   assert.equal(sessionEvent(event('turn_aborted', 100)).state, 'stopped');
 });
+test('only explicit session permission/input calls enter waiting', () => {
+  const request = sessionEvent(responseItem('custom_tool_call', 100, {
+    name:'exec', call_id:'call-permission', input:'const r = await tools.request_permissions({permissions:{file_system:{write:["C:/tmp"]}}});',
+  }));
+  assert.deepEqual(request, {state:'waiting', at:100, requestId:'call-permission'});
+  const inputRequest = sessionEvent(responseItem('custom_tool_call', 101, {
+    name:'exec', call_id:'call-input', input:'const answer = await tools.request_user_input({questions:[]});',
+  }));
+  assert.deepEqual(inputRequest, {state:'waiting', at:101, requestId:'call-input'});
+  const escalation = sessionEvent(responseItem('custom_tool_call', 101, {
+    name:'exec', call_id:'call-escalated', input:'await tools.exec_command({cmd:"build", sandbox_permissions:"require_escalated"});',
+  }));
+  assert.equal(escalation, null);
+  assert.equal(sessionEvent(responseItem('custom_tool_call', 102, {
+    name:'exec', call_id:'call-diagnostic', input:"input.Contains('request_permissions')",
+  })), null);
+  assert.equal(sessionEvent(responseItem('custom_tool_call_output', 103, {call_id:'call-permission'})).state, 'resolved');
+});
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'yanxiaobei-state-test-'));
 try {
@@ -99,6 +120,28 @@ try {
     const completion = event('task_complete', 300); fs.appendFileSync(file, completion.slice(0, 17)); reader.poll([id]);
     assert.equal(map.get(id).state, 'active'); fs.appendFileSync(file, completion.slice(17)); reader.poll([id]);
     assert.equal(map.get(id).state, 'ready');
+  });
+  test('session permission request waits until its matching tool output', () => {
+    const request = responseItem('custom_tool_call', 200, {
+      name:'exec', call_id:'call-permission', input:'const r = await tools.request_permissions({permissions:{file_system:{write:["C:/tmp"]}}});',
+    });
+    fs.writeFileSync(file, header + event('task_started', 100) + request);
+    const {map, ledger} = setup(); const reader = new SessionActivityReader(temp, ledger); reader.poll([id]);
+    assert.equal(map.get(id).state, 'waiting');
+    fs.appendFileSync(file, responseItem('custom_tool_call_output', 300, {call_id:'call-other'})); reader.poll([id]);
+    assert.equal(map.get(id).state, 'waiting');
+    fs.appendFileSync(file, responseItem('custom_tool_call_output', 400, {call_id:'call-permission'})); reader.poll([id]);
+    assert.equal(map.get(id).state, 'active');
+  });
+  test('automatically reviewed escalation remains active without approval UI', () => {
+    const escalation = responseItem('custom_tool_call', 200, {
+      name:'exec', call_id:'call-auto-review', input:'await tools.exec_command({cmd:"build", sandbox_permissions:"require_escalated"});',
+    });
+    fs.writeFileSync(file, header + event('task_started', 100) + escalation);
+    const {map, ledger} = setup(); const reader = new SessionActivityReader(temp, ledger); reader.poll([id]);
+    assert.equal(map.get(id).state, 'active');
+    fs.appendFileSync(file, responseItem('custom_tool_call_output', 300, {call_id:'call-auto-review'})); reader.poll([id]);
+    assert.equal(map.get(id).state, 'active');
   });
   test('file truncation recovers new turn without replaying old success', () => {
     fs.writeFileSync(file, header + event('task_started', 100) + event('task_complete', 300));
@@ -147,6 +190,24 @@ test('real desktop interrupt pattern clears running', () => {
   run(`processLogLine(${JSON.stringify(new Date().toISOString()+' info Reasoning summary turn-start config resolved conversationId='+id)})`);
   run(`processLogLine(${JSON.stringify(new Date().toISOString()+' info response_routed conversationId='+id+' errorCode=null method=turn/interrupt')});emitPetState()`);
   assert.equal(run('combinedState.pet.counts.running'), 0);
+});
+test('modern desktop approval response clears the matching waiting state', () => {
+  const run=bridgeContext(); const id='00000000-0000-4000-8000-000000000001'; const now=Date.now();
+  run(`processLogLine(${JSON.stringify(new Date(now).toISOString()+' info Reasoning summary turn-start config resolved conversationId='+id)})`);
+  run(`processLogLine(${JSON.stringify(new Date(now+1).toISOString()+' info [windows-review-request] reveal requested conversationId='+id+' method=item/commandExecution/requestApproval requestId=16')});emitPetState()`);
+  assert.equal(run('combinedState.pet.petState'), 'waiting');
+  run(`processLogLine(${JSON.stringify(new Date(now+2).toISOString()+' info Sending server response id=16 method=item/commandExecution/requestApproval response={"decision":"accept"')});emitPetState()`);
+  assert.equal(run('combinedState.pet.petState'), 'running');
+  assert.equal(run(`activity.get('${id}').approvals.size`), 0);
+});
+test('approval responses cannot clear another task or request', () => {
+  const run=bridgeContext(); const one='00000000-0000-4000-8000-000000000001'; const two='a'; const now=Date.now();
+  run(`ledger.start('${one}',${now});ledger.start('${two}',${now});`);
+  run(`processLogLine(${JSON.stringify(new Date(now+1).toISOString()+' info reveal requested conversationId='+one+' method=item/permissions/requestApproval requestId=21')})`);
+  run(`processLogLine(${JSON.stringify(new Date(now+2).toISOString()+' info reveal requested conversationId='+two+' method=item/fileChange/requestApproval requestId=22')})`);
+  run(`processLogLine(${JSON.stringify(new Date(now+3).toISOString()+' info Sending server response id=22 method=item/fileChange/requestApproval response={"decision":"decline"}')});emitPetState()`);
+  assert.equal(run(`activity.get('${one}').state`), 'waiting');
+  assert.equal(run(`activity.get('${two}').state`), 'active');
 });
 test('log rotation replay does not clear other tracked tasks or resurrect reminders', () => {
   const run=bridgeContext(); run("markActive('a',Date.now());markReady('b',Date.now());activity.delete('b');markReady('b',Date.now());emitPetState()");

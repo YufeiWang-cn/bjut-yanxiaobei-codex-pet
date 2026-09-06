@@ -6,9 +6,9 @@
 
 原生素材版 · Windows 增强版 · macOS 增强版（实验性）
 
-当前版本 **0.2.2**。不会安装？先看 [零基础安装步骤](docs/BEGINNER.md)；下载解压后双击 **START-HERE.html**，直接用浏览器阅读，无需开发工具。
+当前版本 **0.2.3**。不会安装？先看 [零基础安装步骤](docs/BEGINNER.md)；下载解压后双击 **START-HERE.html**，直接用浏览器阅读，无需开发工具。
 
-0.2.2 修复重命名/后台建议误入任务队列、子 agent 单独计数及打开旧任务重复提醒。只显示来源已确认的主任务，未知来源暂不展示。更新文件后必须关闭再启动桌宠；请确认下载包内 VERSION.txt 为 0.2.2，不要混用旧文件。
+0.2.3 适配新版 Codex 的审批记录：只有真正需要用户点击的请求才显示“等待批准”，Codex 自动审查期间保持“进行中”；批准或拒绝后只解除对应请求，任务结束后恢复空闲。仍只显示来源已确认的主任务。更新文件后必须关闭再启动桌宠；请确认下载包内 VERSION.txt 为 0.2.3，不要混用旧文件。
 
 [安装指南](docs/INSTALL.md) · [Mac 专用指南](docs/MACOS.md) · [效果展示](docs/PREVIEW.md) · [常见问题](docs/FAQ.md)
 
@@ -33,7 +33,7 @@
 
 三种版本互不依赖。只想留一只宠物，可隐藏 Codex 原生桌宠，再运行对应系统的增强版。Windows 文件不能直接在 Mac 运行，Mac 请使用新增目录。
 
-> 当前 0.2.2 提供 Mac **源码运行包与 .app 构建流程**，不是已经签名、公证、实机验收的 Mac 安装包。没有 Linux 增强版、自动更新或官方插件集成。
+> 当前 0.2.3 提供 Mac **源码运行包与 .app 构建流程**，不是已经签名、公证、实机验收的 Mac 安装包。没有 Linux 增强版、自动更新或官方插件集成。
 
 ## 快速开始
 
@@ -136,6 +136,6 @@ Mac 开发：在 `macos-companion` 运行 `npm ci`、`npm run prepare-assets`、
 
 打包后运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Audit-Release.ps1 -ReleaseDirectory .\dist`，逐文件比较四个 ZIP 与当前源码，并验证 SHA256SUMS.txt。源码静态检查可运行 `node scripts/Audit-Source.cjs`；结果不等于 Mac 实机验收或绝对无漏洞保证。
 
-上传 GitHub 时，让 README.md 位于仓库根目录；只上传本项目的源码、素材与文档，不上传 `.test-output/`、`node_modules/`、运行配置、日志或备份。可先将完整项目 ZIP 解压到新文件夹再上传其内容。Release 标签使用 `v0.2.2`，附件放四个 ZIP 和 SHA256SUMS.txt；建议标为预发布，Mac 附件明确标注“实验性源码包”。本项目不会自动上传 GitHub 或触发云端构建。
+上传 GitHub 时，让 README.md 位于仓库根目录；只上传本项目的源码、素材与文档，不上传 `.test-output/`、`node_modules/`、运行配置、日志或备份。可先将完整项目 ZIP 解压到新文件夹再上传其内容。Release 标签使用 `v0.2.3`，附件放四个 ZIP 和 SHA256SUMS.txt；建议标为预发布，Mac 附件明确标注“实验性源码包”。本项目不会自动上传 GitHub 或触发云端构建。
 
 仍需注意：Mac 实机、签名/公证与预编译安装包待完成；Windows 需要 Node.js，并非独立 EXE 安装器。素材使用遵守本项目 FAQ，MIT 不覆盖角色图像。原生素材的 `spriteVersionNumber: 2` 是格式号，不是项目版本号；旧私人版和旧 ZIP 不属于当前发布，不要一起上传。

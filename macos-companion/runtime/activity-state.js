@@ -75,13 +75,30 @@ class ActivityLedger {
 
 function sessionEvent(line) {
   // Do not retain prompts, reasoning, tool output, or assistant message text.
-  if (!/"type"\s*:\s*"(?:task_started|task_complete|turn_aborted|task_failed)"/.test(line)) return null;
+  if (!/"type"\s*:\s*"(?:task_started|task_complete|turn_aborted|task_failed|custom_tool_call|custom_tool_call_output|function_call|function_call_output)"/.test(line)) return null;
   try {
     const record = JSON.parse(line);
-    if (record.type !== 'event_msg') return null;
-    const event = record.payload;
     const at = Date.parse(record.timestamp);
-    if (!Number.isFinite(at) || !event?.turn_id) return null;
+    if (!Number.isFinite(at)) return null;
+    const event = record.payload;
+    if (record.type === 'response_item') {
+      const requestId = event?.call_id;
+      if (!requestId) return null;
+      const isCall = event.type === 'custom_tool_call' || event.type === 'function_call';
+      const input = typeof event.input === 'string' ? event.input
+        : typeof event.arguments === 'string' ? event.arguments : '';
+      // An escalated command may be handled by Codex's automatic reviewer and
+      // must stay active unless the desktop actually reveals an approval UI.
+      // Explicit permission/input tools always require a user response.
+      const needsUser = event.name === 'request_permissions' || event.name === 'request_user_input'
+        || /\btools\.(?:request_permissions|request_user_input)\s*\(/.test(input);
+      if (isCall && needsUser) return { state: 'waiting', at, requestId };
+      if (event.type === 'custom_tool_call_output' || event.type === 'function_call_output') {
+        return { state: 'resolved', at, requestId };
+      }
+      return null;
+    }
+    if (record.type !== 'event_msg' || !event?.turn_id) return null;
     if (event.type === 'task_started') return { state: 'active', at, turnId: event.turn_id };
     if (event.type === 'turn_aborted') return { state: 'stopped', at, turnId: event.turn_id };
     if (event.type === 'task_failed') return { state: 'failed', at, turnId: event.turn_id };
@@ -197,7 +214,12 @@ class SessionActivityReader {
     for (const line of lines) {
       const event = sessionEvent(line);
       if (!event) continue;
-      if (event.state === 'active') this.ledger.start(id, event.at, event.turnId, 'session');
+      if (event.state === 'waiting') this.ledger.wait(id, event.at, event.requestId);
+      else if (event.state === 'resolved') {
+        const approvals = this.ledger.latest.get(id)?.approvals;
+        if (approvals?.has(event.requestId)) this.ledger.progress(id, event.at, true, event.requestId);
+      }
+      else if (event.state === 'active') this.ledger.start(id, event.at, event.turnId, 'session');
       else this.ledger.finish(id, event.state, event.at, event.turnId, cursor.silentBaseline);
     }
     if (cursor.offset >= cursor.baselineEnd && !cursor.carry) cursor.silentBaseline = false;
