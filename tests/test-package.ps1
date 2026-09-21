@@ -5,8 +5,25 @@ $null = New-Item -ItemType Directory -Path $testRoot -Force
 $data = Join-Path $testRoot 'data'
 $startup = Join-Path $testRoot 'startup'
 function Assert($condition, $message) { if (-not $condition) { throw $message } }
+$freshData = Join-Path $testRoot 'fresh-data'
+& (Join-Path $repoRoot 'windows-companion\Configure-Autostart.ps1') -InitializeDefault -DataDirectory $freshData -StartupDirectory $startup -NoStart
+Assert (Test-Path -LiteralPath (Join-Path $freshData 'autostart-enabled.flag')) 'Fresh install did not enable follow by default'
+Assert (Test-Path -LiteralPath (Join-Path $freshData 'autostart-configured.flag')) 'Default choice was not persisted'
+& (Join-Path $repoRoot 'windows-companion\Configure-Autostart.ps1') -Disable -DataDirectory $freshData -StartupDirectory $startup -NoStart
+& (Join-Path $repoRoot 'windows-companion\Configure-Autostart.ps1') -InitializeDefault -DataDirectory $freshData -StartupDirectory $startup -NoStart
+Assert (-not (Test-Path -LiteralPath (Join-Path $freshData 'autostart-enabled.flag'))) 'Default setup reversed an explicit disable'
+Assert (-not (Test-Path -LiteralPath (Join-Path $startup 'BJUT-YanXiaoBei-Codex.lnk'))) 'Disable left a startup shortcut'
+& (Join-Path $repoRoot 'windows-companion\Configure-Autostart.ps1') -Enable -DataDirectory $freshData -StartupDirectory $startup -NoStart
+Assert (Test-Path -LiteralPath (Join-Path $freshData 'autostart-enabled.flag')) 'Follow could not be re-enabled'
+& (Join-Path $repoRoot 'windows-companion\Configure-Autostart.ps1') -Disable -DataDirectory $freshData -StartupDirectory $startup -NoStart
+$legacyData = Join-Path $testRoot 'legacy-data'
+$null = New-Item -ItemType Directory -Path $legacyData -Force
+$null = New-Item -ItemType File -Path (Join-Path $legacyData 'ui-settings.json') -Force
+& (Join-Path $repoRoot 'windows-companion\Configure-Autostart.ps1') -InitializeDefault -DataDirectory $legacyData -StartupDirectory $startup -NoStart
+Assert (-not (Test-Path -LiteralPath (Join-Path $legacyData 'autostart-enabled.flag'))) 'Existing installation preference was overwritten'
 & (Join-Path $repoRoot 'windows-companion\Configure-Autostart.ps1') -Enable -DataDirectory $data -StartupDirectory $startup -NoStart
 Assert (Test-Path -LiteralPath (Join-Path $data 'autostart-enabled.flag')) 'Enable flag missing'
+Assert (Test-Path -LiteralPath (Join-Path $data 'autostart-configured.flag')) 'Enable choice missing'
 $shortcutPath = Join-Path $startup 'BJUT-YanXiaoBei-Codex.lnk'
 Assert (Test-Path -LiteralPath $shortcutPath) 'Startup shortcut missing'
 $shell = New-Object -ComObject WScript.Shell
@@ -27,4 +44,12 @@ Assert $rejected 'Installer overwrote existing pet without permission'
 Assert (@(Get-ChildItem -LiteralPath (Join-Path $fakeCodex 'pets') -Directory -Filter 'bjut-yanxiaobei.backup-*').Count -eq 1) 'Update backup missing'
 $sourceHash = (Get-FileHash -LiteralPath (Join-Path $repoRoot 'codex-native\bjut-yanxiaobei\spritesheet.webp')).Hash
 Assert ((Get-FileHash -LiteralPath (Join-Path $pet 'spritesheet.webp')).Hash -eq $sourceHash) 'Installed sprite changed'
-'PASS: isolated autostart enable/disable, native install, overwrite protection and backup; no real Startup or Codex home modified'
+& (Join-Path $repoRoot 'scripts\Uninstall-CodexPet.ps1') -CodexHome $fakeCodex -RemoveBackups -Confirm:$false
+Assert (-not (Test-Path -LiteralPath $pet)) 'Native uninstaller left pet'
+Assert (@(Get-ChildItem -LiteralPath (Join-Path $fakeCodex 'pets') -Directory -Filter 'bjut-yanxiaobei.backup-*').Count -eq 0) 'Native uninstaller left backups'
+$uninstallData = Join-Path $testRoot 'BJUT-YanXiaoBei'
+$null = New-Item -ItemType Directory -Path $uninstallData -Force
+$null = New-Item -ItemType File -Path (Join-Path $uninstallData 'ui-settings.json') -Force
+& (Join-Path $repoRoot 'windows-companion\Uninstall.ps1') -DataDirectory $uninstallData -StartupDirectory $startup -Confirm:$false
+Assert (-not (Test-Path -LiteralPath $uninstallData)) 'Windows uninstaller left settings'
+'PASS: isolated default-on, disable persistence, re-enable, native install and uninstall; no real Startup or Codex home modified'

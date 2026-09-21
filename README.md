@@ -6,9 +6,9 @@
 
 原生素材版 · Windows 增强版 · macOS 增强版（实验性）
 
-当前版本 **0.2.3**。不会安装？先看 [零基础安装步骤](docs/BEGINNER.md)；下载解压后双击 **START-HERE.html**，直接用浏览器阅读，无需开发工具。
+当前版本 **0.2.4**。不会安装？先看 [零基础安装步骤](docs/BEGINNER.md)；下载解压后双击 **START-HERE.html**，直接用浏览器阅读，无需开发工具。
 
-0.2.3 适配新版 Codex 的审批记录：只有真正需要用户点击的请求才显示“等待批准”，Codex 自动审查期间保持“进行中”；批准或拒绝后只解除对应请求，任务结束后恢复空闲。仍只显示来源已确认的主任务。更新文件后必须关闭再启动桌宠；请确认下载包内 VERSION.txt 为 0.2.3，不要混用旧文件。
+0.2.4 增加增强版更新提醒和各版本卸载入口；审批请求按任务关联，短暂自动审批不再闪现等待。更新文件后必须关闭再启动桌宠；请确认下载包内 VERSION.txt 为 0.2.4，不要混用旧文件。
 
 [安装指南](docs/INSTALL.md) · [Mac 专用指南](docs/MACOS.md) · [效果展示](docs/PREVIEW.md) · [常见问题](docs/FAQ.md)
 
@@ -33,7 +33,7 @@
 
 三种版本互不依赖。只想留一只宠物，可隐藏 Codex 原生桌宠，再运行对应系统的增强版。Windows 文件不能直接在 Mac 运行，Mac 请使用新增目录。
 
-> 当前 0.2.3 提供 Mac **源码运行包与 .app 构建流程**，不是已经签名、公证、实机验收的 Mac 安装包。没有 Linux 增强版、自动更新或官方插件集成。
+> 当前 0.2.4 提供 Mac **源码运行包与 .app 构建流程**，不是已经签名、公证、实机验收的 Mac 安装包。没有 Linux 增强版或自动安装更新；增强版仅提醒并打开 GitHub Release。
 
 ## 快速开始
 
@@ -89,7 +89,7 @@ npm run pack:arm64
 | Mac 菜单栏图标 | 找回桌宠和位置；提供相同菜单 |
 | “重置 ×N” | **只显示，不兑换**；未知为 `--`，明确零次才显示 `×0` |
 
-Windows 的“跟随 Codex 启动”使用主动启用的观察器。Mac 的“跟随 Codex 显示/隐藏”只在桌宠已运行时生效；登录自动运行需要另行配置登录项。两者不是同一机制。
+Windows 新安装首次启动后默认启用“跟随 Codex 启动”观察器，右键可关闭并保持这一选择。Mac 新安装默认跟随显示；打包 .app 首次运行会尝试启用登录项，源码运行不会。两个系统都可从右键打开离线“使用说明”。Mac 的“跟随 Codex 显示/隐藏”只在桌宠已运行时生效，与登录自动运行不是同一机制。
 
 ## 动画与效果
 
@@ -136,6 +136,6 @@ Mac 开发：在 `macos-companion` 运行 `npm ci`、`npm run prepare-assets`、
 
 打包后运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Audit-Release.ps1 -ReleaseDirectory .\dist`，逐文件比较四个 ZIP 与当前源码，并验证 SHA256SUMS.txt。源码静态检查可运行 `node scripts/Audit-Source.cjs`；结果不等于 Mac 实机验收或绝对无漏洞保证。
 
-上传 GitHub 时，让 README.md 位于仓库根目录；只上传本项目的源码、素材与文档，不上传 `.test-output/`、`node_modules/`、运行配置、日志或备份。可先将完整项目 ZIP 解压到新文件夹再上传其内容。Release 标签使用 `v0.2.3`，附件放四个 ZIP 和 SHA256SUMS.txt；建议标为预发布，Mac 附件明确标注“实验性源码包”。本项目不会自动上传 GitHub 或触发云端构建。
+上传 GitHub 时，让 README.md 位于仓库根目录；只上传本项目的源码、素材与文档，不上传 `.test-output/`、`node_modules/`、运行配置、日志或备份。可先将完整项目 ZIP 解压到新文件夹再上传其内容。Release 标签使用 `v0.2.4`，附件放四个 ZIP 和 SHA256SUMS.txt；建议标为预发布，Mac 附件明确标注“实验性源码包”。本项目不会自动上传 GitHub 或触发云端构建。
 
 仍需注意：Mac 实机、签名/公证与预编译安装包待完成；Windows 需要 Node.js，并非独立 EXE 安装器。素材使用遵守本项目 FAQ，MIT 不覆盖角色图像。原生素材的 `spriteVersionNumber: 2` 是格式号，不是项目版本号；旧私人版和旧 ZIP 不属于当前发布，不要一起上传。

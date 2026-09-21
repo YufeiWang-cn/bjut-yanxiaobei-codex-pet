@@ -1,6 +1,6 @@
 # BJUT 燕小北 · Codex 原生素材版
 
-当前源码 **0.2.3**。第一次安装请先双击本包根目录 **START-HERE.html**；它会用浏览器打开逐步说明，无需开发工具。也可查看 docs/BEGINNER.md。版本号见 VERSION.txt。
+当前源码 **0.2.4**。第一次安装请先双击本包根目录 **START-HERE.html**；它会用浏览器打开逐步说明，无需开发工具。也可查看 docs/BEGINNER.md。版本号见 VERSION.txt。
 
 这是个人制作、由 Codex 桌宠宿主加载的 v2 素材包，不包含独立额度窗口，也不是官方出品。
 
@@ -17,6 +17,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Install-CodexPet.p
 ```
 
 已有同名版本时，脚本默认拒绝覆盖；加 `-Force` 会先备份再更新。其他系统的兼容性、安装与卸载见 `docs/INSTALL.md`。
+
+卸载前在 Codex 内切换其他宠物。Windows 运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Uninstall-CodexPet.ps1 -Confirm:$false`，要清除旧备份可添加 `-RemoveBackups`；Mac 在终端运行 `sh scripts/Uninstall-CodexPet.command`。原生版只有素材，不能修改 Codex 宿主右键菜单。
 
 需要五小时 / 每周额度、任务活动和独立窗口，请按操作系统下载 Windows 或 macOS 独立增强版；本包不需要 Node.js。
 

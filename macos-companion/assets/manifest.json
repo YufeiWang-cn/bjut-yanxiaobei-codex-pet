@@ -1,7 +1,8 @@
 {
-  "runtime/quota-bridge.js": "920579eb6ec27c1478db5d669443f2a1d1c1ea1371704d9c8624029376c268c6",
-  "runtime/activity-state.js": "ecce6bca18813306b24753fc13a726797dab7238403aecc64817c9454baa3701",
+  "runtime/quota-bridge.js": "6e9d3fd530184ea78634e71c20e9b6629e543b6a4eb603932b5bf4767672f5bd",
+  "runtime/activity-state.js": "ddedcce993b49e44701a10d6e5577a9c80b44b211f00e649bd9e6a5236fdc7dd",
   "runtime/platform-paths.js": "0579b789fbdc6b4032431fbf445078ce1cb6c88557aea497e7807cd2b1d6d4cc",
+  "runtime/update-check.js": "dadc15f9006a2f9e7629d248d80a56330aeac63c2548e2a2c5a49389fef260d7",
   "assets/animation-timing.json": "b26f5e27d1f6ae39dff57454504378c97f5bad9aa0198f797affe21ec11bb505",
   "assets/LICENSE.md": "3f037c08e1af2dc58c2ac7e12b473795b6259249d8bb248f29c12b86347a41e6",
   "assets/frames/idle/00.png": "4a465a968ade5c7fc7ba2265b67470a4a22594a8046164a6bbc5b03dd24ee35f",

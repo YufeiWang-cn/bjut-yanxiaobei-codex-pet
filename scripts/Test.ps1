@@ -11,6 +11,7 @@ $cases = @(
     'tests\test-pet-window-restore.ps1',
     'tests\test-pet-watcher.ps1',
     'tests\test-package.ps1'
+    'tests\test-update-check.ps1'
 )
 & $hostExecutable -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $repoRoot 'windows-companion\CodexQuotaPet.ps1') -SmokeTest
 if ($LASTEXITCODE -ne 0) { throw 'Smoke test failed' }
@@ -24,6 +25,8 @@ if ($LASTEXITCODE -ne 0) { throw 'JavaScript syntax check failed' }
 if ($LASTEXITCODE -ne 0) { throw 'Bridge unit tests failed' }
 & $NodeExecutable (Join-Path $repoRoot 'tests\test-activity-state.js')
 if ($LASTEXITCODE -ne 0) { throw 'Activity lifecycle tests failed' }
+& $NodeExecutable (Join-Path $repoRoot 'tests\test-update-check.js')
+if ($LASTEXITCODE -ne 0) { throw 'Update checker tests failed' }
 & $NodeExecutable (Join-Path $repoRoot 'tests\test-task-scope.js')
 if ($LASTEXITCODE -ne 0) { throw 'Root task scope regression tests failed' }
 & $NodeExecutable (Join-Path $repoRoot 'scripts\Render-StartHere.cjs') --check

@@ -65,6 +65,7 @@ Assert (!$script:isQuotaVisible -and $script:isTaskTrayExpanded) 'Bubble close c
 $saved=Get-Content -Raw -Encoding UTF8 -LiteralPath $settingsPath | ConvertFrom-Json
 Assert (!$saved.quotaVisible -and $saved.tasksVisible) 'Visibility preferences not persisted'
 Initialize-PetMenu
+Assert (@($window.ContextMenu.Items | Where-Object { $_ -is [Windows.Controls.MenuItem] -and $_.Header -eq '使用说明' }).Count -eq 1) 'Usage guide menu item missing'
 $window.ContextMenu.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.ContextMenu]::OpenedEvent))
 Assert ($quotaMenuItem.Header -eq '显示额度气泡') 'Hidden quota menu label incorrect'
 $quotaMenuItem.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.MenuItem]::ClickEvent))

@@ -93,6 +93,11 @@ if ($SmokeTest) {
 
 $null = New-Item -ItemType Directory -Path $dataRoot -Force
 $nodeExecutable = Get-CompanionNode
+try {
+    & (Join-Path $appRoot 'Configure-Autostart.ps1') -InitializeDefault
+} catch {
+    $null = [Windows.MessageBox]::Show('燕小北已启动，但自动跟随设置失败：' + $_.Exception.Message, '跟随 Codex 启动')
+}
 $bitmapCache = @{}
 function Get-Bitmap([string]$path) {
     if (-not $bitmapCache.ContainsKey($path)) {
@@ -416,7 +421,16 @@ function Apply-Snapshot($data) {
         $quotaState.ResetCreditExpiresAt = $null
     }
     $planName = if ([string]::IsNullOrWhiteSpace([string]$data.planType)) { 'CODEX' } else { $data.planType.ToString().ToUpper() }
-    $statusText.Text = ('{0} 额度 · 刚刚更新' -f $planName)
+    $updatedAt = if ($data.fetchedAtMs) { [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$data.fetchedAtMs) }
+        elseif ($data.fetchedAt) { [DateTimeOffset]::FromUnixTimeSeconds([int64]$data.fetchedAt) }
+        else { $null }
+    $age = if ($null -ne $updatedAt) { [math]::Max(0, [math]::Floor(([DateTimeOffset]::UtcNow - $updatedAt).TotalSeconds)) } else { $null }
+    $when = if ($null -eq $age) { '更新时间未知' }
+        elseif ($age -lt 10) { '刚刚更新' }
+        elseif ($age -lt 60) { ('{0} 秒前更新' -f $age) }
+        elseif ($age -lt 3600) { ('{0} 分钟前更新' -f [math]::Floor($age / 60)) }
+        else { ('上次更新 {0:MM-dd HH:mm}' -f $updatedAt.ToLocalTime()) }
+    $statusText.Text = ('{0} 额度 · {1}' -f $planName, $when)
     Update-Countdowns
 }
 
@@ -494,6 +508,7 @@ $uiTimer = [Windows.Threading.DispatcherTimer]::new()
 $uiTimer.Interval = [TimeSpan]::FromMilliseconds(500)
 $script:lastStateFileWriteUtc = [datetime]::MinValue
 $script:lastPetSnapshot = $null
+$script:lastQuotaSnapshotKey = $null
 $uiTimer.add_Tick({
     Remember-CodexForegroundWindow
     if (Test-Path -LiteralPath $stateFile) {
@@ -504,7 +519,13 @@ $uiTimer.add_Tick({
                 $script:lastPetSnapshot = $data.pet
                 $nowSeconds = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
                 if (Test-PetSnapshotFresh $data.pet $bridge.HasExited $nowSeconds) { Apply-PetSnapshot $data.pet }
-                if ($null -ne $data.quota) { Apply-Snapshot $data.quota }
+                if ($null -ne $data.quota) {
+                    $quotaKey = ConvertTo-Json -InputObject $data.quota -Compress -Depth 8
+                    if ($quotaKey -ne $script:lastQuotaSnapshotKey) {
+                        Apply-Snapshot $data.quota
+                        $script:lastQuotaSnapshotKey = $quotaKey
+                    }
+                }
                 if ($null -ne $data.error) {
                     if ($data.error.scope -eq 'activity') {
                         $script:lastPetSnapshot = $null
@@ -552,6 +573,152 @@ function Set-FollowCodex([bool]$enabled) {
     $script:followMenuItem.IsChecked = Test-Path -LiteralPath (Join-Path $dataRoot 'autostart-enabled.flag')
 }
 
+function Open-UsageGuide {
+    $guide = Join-Path (Split-Path -Parent $appRoot) 'START-HERE.html'
+    if (-not (Test-Path -LiteralPath $guide -PathType Leaf)) {
+        $null = [Windows.MessageBox]::Show('请完整解压下载包，保留根目录的 START-HERE.html 使用说明。', '使用说明')
+        return
+    }
+    $info = [Diagnostics.ProcessStartInfo]::new($guide)
+    $info.UseShellExecute = $true
+    $null = [Diagnostics.Process]::Start($info)
+}
+
+$updatePreferencePath = Join-Path $dataRoot 'update-preferences.json'
+$script:updateProcess = $null
+$script:updateManual = $false
+$updateTimer = [Windows.Threading.DispatcherTimer]::new()
+$updateTimer.Interval = [TimeSpan]::FromMilliseconds(250)
+function Open-ReleasePage([string]$url) {
+    if ($url -notmatch '^https://github\.com/YufeiWang-cn/bjut-yanxiaobei-codex-pet/releases(?:/tag/v\d+\.\d+\.\d+)?$') {
+        throw 'Unexpected release URL'
+    }
+    $browser = [Diagnostics.ProcessStartInfo]::new($url)
+    $browser.UseShellExecute = $true
+    $null = [Diagnostics.Process]::Start($browser)
+}
+function New-ReleaseUpdateDialog($result) {
+    $dialog = [Windows.Window]::new()
+    $dialog.Title = '燕小北发现新版本'
+    $dialog.Width = [math]::Min(560, [Windows.SystemParameters]::WorkArea.Width - 32)
+    $dialog.Height = [math]::Min(400, [Windows.SystemParameters]::WorkArea.Height - 32)
+    $dialog.MinWidth = [math]::Min(390, $dialog.Width)
+    $dialog.MinHeight = [math]::Min(285, $dialog.Height)
+    $dialog.WindowStartupLocation = [Windows.WindowStartupLocation]::CenterOwner
+    if ($window.IsVisible) { $dialog.Owner = $window }
+    $dialog.FontFamily = [Windows.Media.FontFamily]::new('Microsoft YaHei UI')
+    $dialog.Background = [Windows.Media.Brushes]::White
+    $dialog.Tag = 'later'
+    $grid = [Windows.Controls.Grid]::new()
+    $grid.Margin = [Windows.Thickness]::new(18)
+    $grid.Background = [Windows.Media.Brushes]::White
+    foreach ($height in @([Windows.GridLength]::Auto, [Windows.GridLength]::new(1, [Windows.GridUnitType]::Star), [Windows.GridLength]::Auto)) {
+        $row = [Windows.Controls.RowDefinition]::new(); $row.Height = $height
+        $null = $grid.RowDefinitions.Add($row)
+    }
+    $heading = [Windows.Controls.TextBlock]::new()
+    $heading.Text = "当前版本 $($result.local)  →  新版本 $($result.latest)`n更新内容："
+    $heading.TextWrapping = [Windows.TextWrapping]::Wrap
+    $heading.FontSize = 14
+    $heading.Margin = [Windows.Thickness]::new(0, 0, 0, 10)
+    [Windows.Controls.Grid]::SetRow($heading, 0); $null = $grid.Children.Add($heading)
+    $notes = [Windows.Controls.TextBox]::new()
+    $notes.Name = 'ReleaseNotes'
+    $notes.Text = [string]$result.summary
+    $notes.IsReadOnly = $true
+    $notes.TextWrapping = [Windows.TextWrapping]::Wrap
+    $notes.VerticalScrollBarVisibility = [Windows.Controls.ScrollBarVisibility]::Auto
+    $notes.HorizontalScrollBarVisibility = [Windows.Controls.ScrollBarVisibility]::Disabled
+    $notes.Padding = [Windows.Thickness]::new(10)
+    $notes.FontSize = 12
+    [Windows.Controls.Grid]::SetRow($notes, 1); $null = $grid.Children.Add($notes)
+    $buttons = [Windows.Controls.StackPanel]::new()
+    $buttons.Orientation = [Windows.Controls.Orientation]::Horizontal
+    $buttons.HorizontalAlignment = [Windows.HorizontalAlignment]::Right
+    $buttons.Margin = [Windows.Thickness]::new(0, 12, 0, 0)
+    foreach ($spec in @(
+        @{ Text = '前往更新'; Value = 'open' },
+        @{ Text = '忽略此版本'; Value = 'ignore' },
+        @{ Text = '暂时忽略'; Value = 'later' }
+    )) {
+        $button = [Windows.Controls.Button]::new()
+        $button.Content = $spec.Text
+        $button.Tag = $spec.Value
+        $button.MinWidth = 106
+        $button.Padding = [Windows.Thickness]::new(8, 6, 8, 6)
+        $button.Margin = [Windows.Thickness]::new(6, 0, 0, 0)
+        $button.add_Click({ param($sender, $eventArgs) $dialog.Tag = $sender.Tag; $dialog.Close() }.GetNewClosure())
+        $null = $buttons.Children.Add($button)
+    }
+    [Windows.Controls.Grid]::SetRow($buttons, 2); $null = $grid.Children.Add($buttons)
+    $dialog.Content = $grid
+    return $dialog
+}
+function Show-ReleaseUpdateDialog($result) {
+    $dialog = New-ReleaseUpdateDialog $result
+    $null = $dialog.ShowDialog()
+    return [string]$dialog.Tag
+}
+function Start-UpdateCheck([bool]$manual) {
+    if ($null -ne $script:updateProcess) {
+        if ($manual) { $script:updateManual = $true; $statusText.Text = '正在检查 GitHub 更新…' }
+        return
+    }
+    $info = [Diagnostics.ProcessStartInfo]::new()
+    $info.FileName = $nodeExecutable
+    $info.Arguments = '"' + (Join-Path $appRoot 'update-check.js') + '"'
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
+    # Start.vbs uses Windows PowerShell 5.1; its inherited code page may not be UTF-8.
+    # Node always writes UTF-8 JSON, including Chinese GitHub release notes.
+    $info.StandardOutputEncoding = [Text.Encoding]::UTF8
+    try {
+        $script:updateProcess = [Diagnostics.Process]::Start($info)
+        $script:updateManual = $manual
+        if ($manual) { $statusText.Text = '正在检查 GitHub 更新…' }
+        $updateTimer.Start()
+    } catch {
+        if ($manual) { $null = [Windows.MessageBox]::Show($_.Exception.Message, '检查更新失败') }
+    }
+}
+$updateTimer.add_Tick({
+    if ($null -eq $script:updateProcess -or -not $script:updateProcess.HasExited) { return }
+    $updateTimer.Stop()
+    $process = $script:updateProcess
+    $script:updateProcess = $null
+    try {
+        $result = $process.StandardOutput.ReadToEnd() | ConvertFrom-Json
+        if ($result.status -eq 'error') {
+            if ($script:updateManual) {
+                $statusText.Text = '检查更新失败'
+                $choice = [Windows.MessageBox]::Show("$($result.message)`n`n是否打开 GitHub 发布页手动查看？", '检查更新失败', [Windows.MessageBoxButton]::YesNo, [Windows.MessageBoxImage]::Warning)
+                if ($choice -eq [Windows.MessageBoxResult]::Yes) { Open-ReleasePage 'https://github.com/YufeiWang-cn/bjut-yanxiaobei-codex-pet/releases' }
+            }
+            return
+        }
+        if ($script:updateManual) { $statusText.Text = '检查更新完成' }
+        if ($result.status -ne 'update') {
+            if ($script:updateManual) {
+                $message = if ($result.latest) { "当前版本 $($result.local)；GitHub 最新已发布版本 $($result.latest)。没有更高的新版本。" }
+                    else { "当前版本 $($result.local)；GitHub 暂无可检查的发布包。" }
+                $null = [Windows.MessageBox]::Show($message, '检查更新')
+            }
+            return
+        }
+        $ignored = ''
+        try { $ignored = (Get-Content -Raw -Encoding UTF8 -LiteralPath $updatePreferencePath | ConvertFrom-Json).ignoredVersion } catch {}
+        if (-not $script:updateManual -and $ignored -eq $result.latest) { return }
+        $choice = Show-ReleaseUpdateDialog $result
+        if ($choice -eq 'open') { Open-ReleasePage $result.link }
+        elseif ($choice -eq 'ignore') {
+            [IO.File]::WriteAllText($updatePreferencePath, ('{"ignoredVersion":"' + $result.latest + '"}'), [Text.UTF8Encoding]::new($false))
+        }
+    } catch { if ($script:updateManual) { $null = [Windows.MessageBox]::Show($_.Exception.Message, '检查更新失败') } }
+    finally { $script:updateManual = $false; $process.Dispose() }
+})
+
 function Initialize-PetMenu {
     $menu = [Windows.Controls.ContextMenu]::new()
     $menu.FontFamily = [Windows.Media.FontFamily]::new('Microsoft YaHei UI')
@@ -568,12 +735,16 @@ function Initialize-PetMenu {
     $script:quotaMenuItem.add_Click({ Set-QuotaVisible (-not $script:isQuotaVisible) })
     $script:taskMenuItem.add_Click({ Set-TaskTrayExpanded (-not $script:isTaskTrayExpanded) })
     $refreshItem = [Windows.Controls.MenuItem]::new(); $refreshItem.Header = '刷新额度与状态'
-    $refreshItem.add_Click({ Send-BridgeCommand 'refresh' })
+    $refreshItem.add_Click({ Send-BridgeCommand 'refresh'; $statusText.Text = '正在刷新…' })
+    $updateItem = [Windows.Controls.MenuItem]::new(); $updateItem.Header = '检查更新'
+    $updateItem.add_Click({ Start-UpdateCheck $true })
+    $helpItem = [Windows.Controls.MenuItem]::new(); $helpItem.Header = '使用说明'
+    $helpItem.add_Click({ Open-UsageGuide })
     $clearItem = [Windows.Controls.MenuItem]::new(); $clearItem.Header = '清除完成 / 错误提醒'
     $clearItem.add_Click({ Send-BridgeCommand 'clear-ready' })
     $exitItem = [Windows.Controls.MenuItem]::new(); $exitItem.Header = '关闭桌宠'
     $exitItem.add_Click({ $window.Close() })
-    foreach ($item in @($openItem, $script:quotaMenuItem, $script:taskMenuItem, $script:followMenuItem, [Windows.Controls.Separator]::new(), $refreshItem, $clearItem, [Windows.Controls.Separator]::new(), $exitItem)) {
+    foreach ($item in @($openItem, $script:quotaMenuItem, $script:taskMenuItem, $script:followMenuItem, [Windows.Controls.Separator]::new(), $refreshItem, $updateItem, $helpItem, $clearItem, [Windows.Controls.Separator]::new(), $exitItem)) {
         $null = $menu.Items.Add($item)
     }
     $menu.add_Opened({
@@ -660,12 +831,15 @@ $window.add_Loaded({
     } catch {}
     if ($ExpandedTest) { Set-QuotaVisible $true; Set-TaskTrayExpanded $true }
     Set-WindowPositionClamped $window.Left $window.Top $false
+    Start-UpdateCheck $false
 })
 
 $window.add_Closed({
     Save-Position
     Save-UiSettings
     $uiTimer.Stop()
+    $updateTimer.Stop()
+    if ($null -ne $script:updateProcess) { try { if (-not $script:updateProcess.HasExited) { $script:updateProcess.Kill() } } catch {}; $script:updateProcess.Dispose() }
     $countdownTimer.Stop()
     $animationTimer.Stop()
     if (-not $bridge.HasExited) {

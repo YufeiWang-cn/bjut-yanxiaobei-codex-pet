@@ -89,11 +89,11 @@ test('only explicit session permission/input calls enter waiting', () => {
   const request = sessionEvent(responseItem('custom_tool_call', 100, {
     name:'exec', call_id:'call-permission', input:'const r = await tools.request_permissions({permissions:{file_system:{write:["C:/tmp"]}}});',
   }));
-  assert.deepEqual(request, {state:'waiting', at:100, requestId:'call-permission'});
+  assert.deepEqual(request, {state:'waiting', at:100, requestId:'call-permission', promptType:'permission'});
   const inputRequest = sessionEvent(responseItem('custom_tool_call', 101, {
     name:'exec', call_id:'call-input', input:'const answer = await tools.request_user_input({questions:[]});',
   }));
-  assert.deepEqual(inputRequest, {state:'waiting', at:101, requestId:'call-input'});
+  assert.deepEqual(inputRequest, {state:'waiting', at:101, requestId:'call-input', promptType:'input'});
   const escalation = sessionEvent(responseItem('custom_tool_call', 101, {
     name:'exec', call_id:'call-escalated', input:'await tools.exec_command({cmd:"build", sandbox_permissions:"require_escalated"});',
   }));
@@ -141,6 +141,23 @@ try {
     const {map, ledger} = setup(); const reader = new SessionActivityReader(temp, ledger); reader.poll([id]);
     assert.equal(map.get(id).state, 'active');
     fs.appendFileSync(file, responseItem('custom_tool_call_output', 300, {call_id:'call-auto-review'})); reader.poll([id]);
+    assert.equal(map.get(id).state, 'active');
+  });
+  test('auto reviewer does not turn a permission tool into human waiting; questions still wait', () => {
+    const permission = responseItem('custom_tool_call', 200, {
+      name:'exec', call_id:'call-permission', input:'await tools.request_permissions({permissions:{file_system:{write:["C:/tmp"]}}});',
+    });
+    const question = responseItem('custom_tool_call', 300, {
+      name:'exec', call_id:'call-question', input:'await tools.request_user_input({questions:[]});',
+    });
+    fs.writeFileSync(file, header + event('task_started', 100) + permission);
+    const {map, ledger} = setup();
+    const reader = new SessionActivityReader(temp, ledger, fs, (_, item) => item.promptType === 'input');
+    reader.poll([id]); assert.equal(map.get(id).state, 'active');
+    fs.appendFileSync(file, question); reader.poll([id]); assert.equal(map.get(id).state, 'waiting');
+    fs.appendFileSync(file, responseItem('custom_tool_call_output', 400, {call_id:'call-permission'})); reader.poll([id]);
+    assert.equal(map.get(id).state, 'waiting', 'auto approval cannot dismiss a real question');
+    fs.appendFileSync(file, responseItem('custom_tool_call_output', 500, {call_id:'call-question'})); reader.poll([id]);
     assert.equal(map.get(id).state, 'active');
   });
   test('file truncation recovers new turn without replaying old success', () => {
@@ -192,13 +209,61 @@ test('real desktop interrupt pattern clears running', () => {
   assert.equal(run('combinedState.pet.counts.running'), 0);
 });
 test('modern desktop approval response clears the matching waiting state', () => {
-  const run=bridgeContext(); const id='00000000-0000-4000-8000-000000000001'; const now=Date.now();
+  const run=bridgeContext(); const id='00000000-0000-4000-8000-000000000001'; const now=Date.now()-1500;
   run(`processLogLine(${JSON.stringify(new Date(now).toISOString()+' info Reasoning summary turn-start config resolved conversationId='+id)})`);
   run(`processLogLine(${JSON.stringify(new Date(now+1).toISOString()+' info [windows-review-request] reveal requested conversationId='+id+' method=item/commandExecution/requestApproval requestId=16')});emitPetState()`);
   assert.equal(run('combinedState.pet.petState'), 'waiting');
   run(`processLogLine(${JSON.stringify(new Date(now+2).toISOString()+' info Sending server response id=16 method=item/commandExecution/requestApproval response={"decision":"accept"')});emitPetState()`);
   assert.equal(run('combinedState.pet.petState'), 'running');
   assert.equal(run(`activity.get('${id}').approvals.size`), 0);
+});
+test('effective auto reviewer suppresses generic approvals, but explicit human UI still waits', () => {
+  const run=bridgeContext(), id='00000000-0000-4000-8000-000000000001', now=Date.now()-2500;
+  run(`processLogLine(${JSON.stringify(new Date(now).toISOString()+' info Reasoning summary turn-start config resolved conversationId='+id+' requestApprovalsReviewer=null resolvedApprovalsReviewer=auto_review')})`);
+  assert.equal(run(`sessionReader.shouldWait('${id}',{promptType:'permission'})`),false);
+  assert.equal(run(`sessionReader.shouldWait('${id}',{promptType:'input'})`),true);
+  run(`processLogLine(${JSON.stringify(new Date(now+1).toISOString()+' info conversationId='+id+' method=item/permissions/requestApproval requestId=51')});emitPetState()`);
+  assert.equal(run('combinedState.pet.petState'),'running');
+  assert.equal(run(`activity.get('${id}').approvals.size`),0);
+  run(`processLogLine(${JSON.stringify(new Date(now+2).toISOString()+' info Sending server response id=51 method=item/permissions/requestApproval')});emitPetState()`);
+  assert.equal(run('combinedState.pet.petState'),'running');
+  run(`processLogLine(${JSON.stringify(new Date(now+3).toISOString()+' info [windows-review-request] reveal requested conversationId='+id+' method=item/permissions/requestApproval requestId=52')});emitPetState()`);
+  assert.equal(run('combinedState.pet.petState'),'waiting');
+  run(`processLogLine(${JSON.stringify(new Date(now+4).toISOString()+' info Sending server response id=52 method=item/permissions/requestApproval')});emitPetState()`);
+  assert.equal(run('combinedState.pet.petState'),'running');
+});
+test('a later human-reviewed turn waits, then returns to running; automatic reviewer can still ask a question', () => {
+  const run=bridgeContext(), id='00000000-0000-4000-8000-000000000001', now=Date.now()-3000;
+  run(`processLogLine(${JSON.stringify(new Date(now).toISOString()+' info Reasoning summary turn-start config resolved conversationId='+id+' resolvedApprovalsReviewer=auto_review')})`);
+  run(`processLogLine(${JSON.stringify(new Date(now+1).toISOString()+' info conversationId='+id+' method=item/tool/requestUserInput requestId=61')});emitPetState()`);
+  assert.equal(run('combinedState.pet.petState'),'waiting');
+  run(`processLogLine(${JSON.stringify(new Date(now+2).toISOString()+' info serverRequest/resolved requestId=61')});emitPetState()`);
+  assert.equal(run('combinedState.pet.petState'),'running');
+  run(`processLogLine(${JSON.stringify(new Date(now+3).toISOString()+' info Reasoning summary turn-start config resolved conversationId='+id+' resolvedApprovalsReviewer=user')})`);
+  assert.equal(run(`sessionReader.shouldWait('${id}',{promptType:'permission'})`),true);
+  run(`processLogLine(${JSON.stringify(new Date(now+4).toISOString()+' info conversationId='+id+' method=item/permissions/requestApproval requestId=62')});emitPetState()`);
+  assert.equal(run('combinedState.pet.petState'),'waiting');
+  run(`processLogLine(${JSON.stringify(new Date(now+5).toISOString()+' info Sending server response id=62 method=item/permissions/requestApproval')});emitPetState()`);
+  assert.equal(run('combinedState.pet.petState'),'running');
+});
+test('automatic short review stays running and a long manual approval becomes waiting', () => {
+  const run=bridgeContext(), id='00000000-0000-4000-8000-000000000001', now=Date.now();
+  run(`ledger.start('${id}',${now-2500});ledger.wait('${id}',${now-100},'auto');emitPetState()`);
+  assert.equal(run('combinedState.pet.petState'),'running');
+  run(`ledger.progress('${id}',${now},true,'auto');ledger.wait('${id}',${now-1500},'manual');emitPetState()`);
+  // Old timestamps cannot overtake newer activity; simulate a second long-lived request.
+  assert.equal(run('combinedState.pet.petState'),'running');
+  run(`ledger.wait('${id}',Date.now()+1,'manual');activity.get('${id}').waitingSince=Date.now()-1500;emitPetState()`);
+  assert.equal(run('combinedState.pet.petState'),'waiting');
+  run(`ledger.progress('${id}',Date.now()+2,true,'manual');emitPetState()`);
+  assert.equal(run('combinedState.pet.petState'),'running');
+});
+test('request ID resolves without method or conversation ID in response log', () => {
+  const run=bridgeContext(), id='00000000-0000-4000-8000-000000000001', now=Date.now()-3000;
+  run(`ledger.start('${id}',${now});processLogLine(${JSON.stringify(new Date(now+1).toISOString()+' info conversationId='+id+' method=item/tool/requestUserInput requestId=31')});emitPetState()`);
+  assert.equal(run('combinedState.pet.petState'),'waiting');
+  run(`processLogLine(${JSON.stringify(new Date(now+2).toISOString()+' info serverRequest/resolved requestId=31')});emitPetState()`);
+  assert.equal(run('combinedState.pet.petState'),'running');
 });
 test('approval responses cannot clear another task or request', () => {
   const run=bridgeContext(); const one='00000000-0000-4000-8000-000000000001'; const two='a'; const now=Date.now();

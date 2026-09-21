@@ -4,9 +4,12 @@ const vm = require('vm');
 const assert = require('assert/strict');
 const appRoot = path.join(__dirname, '..', 'windows-companion');
 const source = fs.readFileSync(path.join(appRoot, 'quota-bridge.js'), 'utf8');
+const scheduled=[];
 const context = vm.createContext({
   require: name => name === 'fs' ? {mkdirSync() {}, writeFileSync() {}} : require(name),
   __dirname: appRoot, Buffer, Date,
+  setTimeout: callback => {scheduled.push(callback);return scheduled.length;},
+  clearTimeout() {},
   process: {env: {}, platform: 'win32', stdout: {write() {}}},
 });
 vm.runInContext(source.split("process.stdin.setEncoding('utf8');")[0], context);
@@ -17,6 +20,7 @@ evaluate(`
   ['active','waiting','ready','failed'].forEach(id=>sessionReader.classify(id,{source:'vscode'}));
   markActive('active', now);
   markWaiting('waiting', now);
+  activity.get('waiting').waitingSince=now-1300;
   markReady('ready', now);
   markFailed('failed', now);
   rememberThreads({data:[{id:'active',name:'桌宠制作',updatedAt:now/1000}]});
@@ -40,4 +44,32 @@ const quota=JSON.parse(evaluate(`JSON.stringify(normalizeQuota({rateLimits:{prim
 assert.equal(quota.primary.usedPercent,23);
 assert.equal(quota.resetCredits.availableCount,2);
 assert.equal(evaluate('normalizeQuota({rateLimits:{}}).resetCredits'), null, 'Missing reset information must not mean zero');
+evaluate(`
+  combinedState.quota=normalizeQuota({rateLimits:{primary:{usedPercent:25,resetsAt:100},secondary:{usedPercent:40,resetsAt:200}},rateLimitResetCredits:{availableCount:2,credits:[]}});
+  handleMessage({method:'account/rateLimits/updated',params:{rateLimits:{limitId:'codex',primary:{usedPercent:31}}}});
+`);
+const push=JSON.parse(evaluate('JSON.stringify(combinedState.quota)'));
+assert.equal(push.primary.usedPercent,31,'Quota notification should update immediately');
+assert.equal(push.primary.resetsAt,100,'Partial notifications must preserve prior window fields');
+assert.equal(push.secondary.usedPercent,40,'Partial notifications must preserve the other window');
+assert.equal(push.resetCredits.availableCount,2,'Partial notifications must preserve reset credits');
+evaluate(`
+  initialized=true;
+  appServer={stdin:{writable:true,write(){}}};
+  readRateLimits();
+  const pendingQuotaId=nextId-1;
+  handleMessage({method:'account/rateLimits/updated',params:{rateLimits:{limitId:'codex',primary:{usedPercent:32}}}});
+  readRateLimits(true);
+  handleMessage({id:pendingQuotaId,result:{rateLimits:{primary:{usedPercent:30}}}});
+`);
+assert.equal(evaluate('combinedState.quota.primary.usedPercent'),32,'Older in-flight reads must not overwrite a newer notification');
+assert.equal(evaluate('quotaRefreshQueued'),false,'One manual refresh is queued for the next turn');
+assert.ok(scheduled.length>0,'Queued refresh must be scheduled after in-flight request');
+evaluate(`
+  const eventTime=Date.now();
+  sessionReader.classify('quota-task',{source:'vscode'});
+  markActive('quota-task',eventTime);emitPetState();
+  markReady('quota-task',eventTime+1000);emitPetState();
+`);
+assert.ok(scheduled.length>1,'A completed task should schedule a prompt quota refresh');
 console.log('PASS: task counts, names, four-state priority, completion expiry, quota and reset count');

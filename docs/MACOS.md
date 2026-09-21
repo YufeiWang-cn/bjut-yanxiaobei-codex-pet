@@ -2,7 +2,7 @@
 
 [返回首页](../README.md) · [常见问题](FAQ.md) · [隐私](PRIVACY.md)
 
-当前源码 0.2.3。不熟悉终端的人先看 [零基础安装步骤](BEGINNER.md) 的 C 部分：含打开终端、拖入文件夹、逐条命令和成功标志。也可双击包内 START-HERE.html。下面的架构/签名内容保留作进阶参考。
+当前源码 0.2.4。不熟悉终端的人先看 [零基础安装步骤](BEGINNER.md) 的 C 部分：含打开终端、拖入文件夹、逐条命令和成功标志。也可双击包内 START-HERE.html。下面的架构/签名内容保留作进阶参考。
 
 ## 版本与验证边界
 
@@ -95,7 +95,8 @@ Finder 启动不会完整继承终端 PATH，程序会尝试常见 Homebrew / �
 {
   "quotaVisible": true,
   "tasksVisible": false,
-  "followCodex": false,
+  "followCodex": true,
+  "launchAtLogin": true,
   "notify": false,
   "codexApp": "/Applications/Codex.app",
   "codexExecutable": "/opt/homebrew/bin/codex",
@@ -130,10 +131,10 @@ Finder 启动不会完整继承终端 PATH，程序会尝试常见 Homebrew / �
 
 ## 7. 自启动的两个不同开关
 
-- **跟随 Codex 显示/隐藏**：仅在桌宠已运行时，每 2 秒观察所选应用；Codex 退出则隐藏、运行则显示，菜单栏仍保留。它不帮你启动 Codex。完全关闭桌宠后不会自行复活。
-- **登录时启动**：源码/演示禁用，仅已打包应用提供。先将 .app 放在固定位置。现代 macOS 登录项 API 对签名/公证有要求，未签名包不能保证可用，见 [Electron app 文档](https://www.electronjs.org/docs/latest/api/app#appsetloginitemsettingssettings-macos-windows)。
+- **跟随 Codex 显示/隐藏**：新安装默认开启；仅在桌宠已运行时，每 2 秒观察所选应用；Codex 退出则隐藏、运行则显示，菜单栏仍保留。取消勾选后桌宠会立即重新显示。它不帮你启动 Codex。完全关闭桌宠后不会自行复活。
+- **登录时启动**：新安装的打包 .app 首次运行会尝试启用，菜单可再关闭或重开；源码/演示禁用。先将 .app 放在固定位置。现代 macOS 登录项 API 对签名/公证有要求，未签名包不能保证可用，见 [Electron app 文档](https://www.electronjs.org/docs/latest/api/app#appsetloginitemsettingssettings-macos-windows)。
 - 个人未签名构建可由你在系统“登录项”手动添加可信的已安装 .app，再退出登录验证。菜单勾选不等于验收通过。
-- 想登录后等待 Codex 再显示，需要同时配置登录启动与跟随显示；两项默认关闭。
+- 想登录后等待 Codex 再显示，需要两项都有效；现有用户的已保存选择会保留。源码包不是可直接登录自启的 .app。
 - 移动、升级或卸载前先关闭登录项；不要把源码调试入口加入登录项。
 
 ## 8. 数据和状态边界
@@ -142,13 +143,13 @@ Finder 启动不会完整继承终端 PATH，程序会尝试常见 Homebrew / �
 
 Mac 优先识别桌面日志，还会从 app-server 返回的近期本机根任务发现会话记录。无日志降级主要保障开始/结束/中止，审批、错误、远程任务或本地文件缺失可能不完整。列表不等于 Codex 侧栏总数。
 
-额度每 60 秒、元数据每 20 秒、状态每秒检查；失败保留上次额度并显示错误/时间，不代表更新成功。重置未知为 `--`，明确零次为 `×0`；绝不兑换。
+额度变动通知到达后立即更新；运行中的任务最多每 20 秒、空闲时最多每 60 秒查询一次，任务结束后还会合并补查一次。元数据每 20 秒、状态每秒检查；手动刷新会立即提示进度，失败保留上次额度并显示错误/时间，不代表更新成功。重置未知为 `--`，明确零次为 `×0`；绝不兑换。
 
 ## 9. 更新、卸载与排错
 
 更新：关闭桌宠和登录项，保留旧版便于回退；完整解压新版，重新安装依赖、测试、打包，替换自己的 .app，再设置登录项。不要只覆盖单个脚本或帧图。
 
-卸载：取消登录项，关闭桌宠，将自己的 .app 和源码目录移入废纸篓。如不保留偏好，再移走 `~/Library/Application Support/BJUT-YanXiaoBei`。**不需要删除 .codex、Codex 的登录或任务。**
+更新检查：启动时检查 GitHub Release，右键菜单可以主动检查。先读取 GitHub 发布订阅，失败才回退 REST API，避免共享代理出口用尽匿名 API 配额后误报。查询使用 Electron 的系统网络接口，跟随 macOS 系统代理/PAC；未配置代理时直连。只有浏览器扩展启用代理而系统未配置时，应用无法借用浏览器扩展。查询约 5 秒截止；对新版本可打开网页、忽略该版本或仅暂时忽略，不自动安装。卸载：优先右键 →“卸载并清除本地数据…”（会关闭登录项，清除 `~/Library/Application Support/BJUT-YanXiaoBei`，并退出），再将 .app / 源码目录移入废纸篓。或先关闭登录项并退出，再运行包内 `Uninstall.command` 清理配置。**不需要删除 .codex、Codex 的登录或任务。**
 
 | 问题 | 检查 |
 | --- | --- |

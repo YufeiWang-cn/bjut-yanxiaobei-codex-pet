@@ -7,7 +7,10 @@ const paths=require('../runtime/platform-paths.js');
 test('settings preserve explicit false, discard unknown and invalid values',()=>{
   const p=model.preferences({quotaVisible:false,tasksVisible:true,x:-1.4,y:NaN,codexApp:'a\0b',extra:'unsafe'});
   assert.equal(p.quotaVisible,false);assert.equal(p.tasksVisible,true);assert.equal(p.x,-1);assert.equal(p.y,null);assert.equal(p.codexApp,'');assert.equal(p.extra,undefined);
-  assert.equal(model.preferences().followCodex,false);assert.equal(model.preferences().notify,false);
+  assert.equal(model.preferences().followCodex,true);assert.equal(model.preferences().launchAtLogin,true);
+  assert.equal(model.preferences({followCodex:false,launchAtLogin:false}).followCodex,false);
+  assert.equal(model.preferences({followCodex:false,launchAtLogin:false}).launchAtLogin,false);
+  assert.equal(model.preferences().notify,false);
 });
 test('four panel visibility combinations have bounded explicit sizes',()=>{
   assert.deepEqual(model.sizeFor({quotaVisible:false,tasksVisible:false}),{width:132,height:182});
@@ -57,9 +60,9 @@ test('Mac log fallback and override include flat and dated paths',()=>{
   assert.deepEqual(list,['logs',path.join('logs','2026','09','03'),path.join('logs','2026','09','02')]);
   assert.ok(paths.desktopLogDirectories('darwin',{},'/Users/test').some(p=>p.includes(path.join('Library','Logs','Codex'))));
 });
-test('all 62 bundled resources match their checksums and shared source',()=>{
+test('all 63 bundled resources match their checksums and shared source',()=>{
   const manifest=JSON.parse(fs.readFileSync(path.join(root,'assets/manifest.json')));
-  assert.equal(Object.keys(manifest).length,62);
+  assert.equal(Object.keys(manifest).length,63);
   for(const [name,hash] of Object.entries(manifest))assert.equal(crypto.createHash('sha256').update(fs.readFileSync(path.join(root,name))).digest('hex'),hash,name);
   for(const name of ['quota-bridge.js','activity-state.js','platform-paths.js']){
     const canonical=path.join(root,'../windows-companion',name);

@@ -1,9 +1,9 @@
 'use strict';
 const STATES = new Set(['idle','running','waiting','failed','review','running-left','running-right','waving','jumping']);
-const DEFAULTS = {quotaVisible:true,tasksVisible:false,followCodex:false,notify:false,codexApp:'',codexExecutable:'',codexHome:'',logRoot:'',x:null,y:null};
+const DEFAULTS = {quotaVisible:true,tasksVisible:false,followCodex:true,launchAtLogin:true,notify:false,codexApp:'',codexExecutable:'',codexHome:'',logRoot:'',x:null,y:null};
 function preferences(input={}) {
   const result={...DEFAULTS};
-  for(const key of ['quotaVisible','tasksVisible','followCodex','notify']) if(typeof input[key]==='boolean') result[key]=input[key];
+  for(const key of ['quotaVisible','tasksVisible','followCodex','launchAtLogin','notify']) if(typeof input[key]==='boolean') result[key]=input[key];
   for(const key of ['codexApp','codexExecutable','codexHome','logRoot']) if(typeof input[key]==='string' && input[key].length<2048 && !input[key].includes('\0')) result[key]=input[key];
   for(const key of ['x','y']) if(Number.isFinite(input[key])) result[key]=Math.round(input[key]);
   return result;

@@ -4,7 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const root = path.resolve(__dirname,'..');
 const source = path.resolve(root,'../windows-companion');
-const jobs = ['quota-bridge.js','activity-state.js','platform-paths.js'].map(name=>[name,'runtime/'+name]);
+const jobs = ['quota-bridge.js','activity-state.js','platform-paths.js','update-check.js'].map(name=>[name,'runtime/'+name]);
 jobs.push(['animation-timing.json','assets/animation-timing.json']);
 jobs.push(['../LICENSE.md','assets/LICENSE.md']);
 const states = {idle:6,'running-right':8,'running-left':8,waving:4,jumping:5,failed:8,waiting:6,running:6,review:6};

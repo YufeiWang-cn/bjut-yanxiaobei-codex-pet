@@ -10,6 +10,11 @@ let shuttingDown = false;
 let buffer = '';
 let appServer = null;
 let quotaInFlight = false;
+let quotaRefreshQueued = false;
+let quotaEventRevision = 0;
+let lastQuotaRequestAt = 0;
+let quotaAfterTurnTimer = null;
+let quotaTaskStatesInitialized = false;
 let threadsInFlight = false;
 let lastStatePayload = '';
 let currentLogPath = null;
@@ -17,11 +22,17 @@ let currentLogOffset = 0;
 let logCarry = '';
 
 const pending = new Map();
+const quotaRequestRevisions = new Map();
 const activity = new Map();
+const previousQuotaTaskStates = new Map();
 const ledger = new ActivityLedger(activity);
 // Recent desktop approval-response logs omit conversationId. Keep the owning
 // task by request ID so only the matching waiting state is released.
 const approvalThreads = new Map();
+// A permission tool call is not proof that a person must click: auto_review
+// routes it to a reviewer agent. The desktop records the effective reviewer
+// for each turn before its session tool calls arrive.
+const reviewerByThread = new Map();
 const observedThreads = new Set();
 const monitorStartedAt = Date.now();
 const threadMetadata = new Map();
@@ -32,7 +43,8 @@ const dataRoot = dataDirectory();
 const stateFile = path.join(dataRoot, 'bridge-state.json');
 const combinedState = { pet: null, quota: null, error: null, updatedAt: 0 };
 const profileRoot = process.env.CODEX_HOME || path.join(process.env.USERPROFILE || process.env.HOME || require('os').homedir(), '.codex');
-const sessionReader = new SessionActivityReader(path.join(profileRoot, 'sessions'), ledger);
+const sessionReader = new SessionActivityReader(path.join(profileRoot, 'sessions'), ledger, fs,
+  (id, event) => event.promptType === 'input' || reviewerByThread.get(id) !== 'auto_review');
 let sessionSourceAvailable = false;
 let lastHeartbeatAt = 0;
 
@@ -87,11 +99,15 @@ function request(method, params, kind) {
   const id = nextId++;
   pending.set(id, kind);
   send({ id, method, ...(params === undefined ? {} : { params }) });
+  return id;
 }
-function readRateLimits() {
-  if (!initialized || quotaInFlight) return;
+function readRateLimits(queueIfBusy = false) {
+  if (!initialized) return;
+  if (quotaInFlight) { if (queueIfBusy) quotaRefreshQueued = true; return; }
   quotaInFlight = true;
-  request('account/rateLimits/read', undefined, 'quota');
+  lastQuotaRequestAt = Date.now();
+  const id = request('account/rateLimits/read', undefined, 'quota');
+  quotaRequestRevisions.set(id, quotaEventRevision);
 }
 function readThreads() {
   if (!initialized || threadsInFlight) return;
@@ -114,6 +130,7 @@ function normalizeQuota(result) {
   return {
     type: 'snapshot',
     fetchedAt: Math.floor(Date.now() / 1000),
+    fetchedAtMs: Date.now(),
     planType: snapshot.planType || null,
     primary: snapshot.primary || null,
     secondary: snapshot.secondary || null,
@@ -124,6 +141,31 @@ function normalizeQuota(result) {
       titles: availableCredits.map((credit) => credit.title).filter(Boolean),
     } : null,
   };
+}
+function normalizeQuotaUpdate(params, previous) {
+  if (!params || typeof params !== 'object') return null;
+  const bucket = params.rateLimitsByLimitId?.codex ||
+    (params.rateLimits && (!params.rateLimits.limitId || params.rateLimits.limitId === 'codex') ? params.rateLimits : null);
+  if (!bucket) return null;
+  const mergeWindow = (oldValue, newValue) => newValue === undefined ? oldValue || null
+    : newValue === null ? null : { ...(oldValue || {}), ...newValue };
+  const fresh = normalizeQuota(params);
+  return {
+    type: 'snapshot', fetchedAt: fresh.fetchedAt, fetchedAtMs: fresh.fetchedAtMs,
+    planType: bucket.planType === undefined ? previous?.planType || null : bucket.planType,
+    primary: mergeWindow(previous?.primary, bucket.primary),
+    secondary: mergeWindow(previous?.secondary, bucket.secondary),
+    resetCredits: Object.prototype.hasOwnProperty.call(params, 'rateLimitResetCredits')
+      ? fresh.resetCredits : previous?.resetCredits || null,
+  };
+}
+function scheduleQuotaAfterTurn() {
+  if (shuttingDown || quotaAfterTurnTimer) return;
+  const delay = Math.max(1200, 5000 - (Date.now() - lastQuotaRequestAt));
+  quotaAfterTurnTimer = setTimeout(() => {
+    quotaAfterTurnTimer = null;
+    readRateLimits(true);
+  }, delay);
 }
 
 function extractConversationId(line) {
@@ -202,11 +244,19 @@ function processLogLine(line) {
   let threadId = extractConversationId(line);
   const timestamp = lineTimestamp(line);
   const turnId = line.match(/(?:turnId|latestTurnId)=([0-9a-f-]{20,})/i)?.[1] || null;
+  if (threadId && line.includes('Reasoning summary turn-start config resolved')) {
+    const reviewer = line.match(/\bresolvedApprovalsReviewer=(user|auto_review)\b/i)?.[1]?.toLowerCase();
+    if (reviewer) reviewerByThread.set(threadId, reviewer);
+    else reviewerByThread.delete(threadId);
+  } else if (threadId && line.includes('maybe_resume_success') && !reviewerByThread.has(threadId)) {
+    const reviewer = line.match(/\bderivedApprovalsReviewer=(user|auto_review)\b/i)?.[1]?.toLowerCase();
+    if (reviewer) reviewerByThread.set(threadId, reviewer);
+  }
   const approvalMethod = /item\/(?:commandExecution|fileChange|permissions)\/requestApproval|item\/tool\/requestUserInput/i.test(line);
-  const isApprovalResponse = line.includes('Sending server response') && approvalMethod;
+  const responseLine = line.includes('Sending server response') || line.includes('serverRequest/resolved');
   const requestId = line.match(/(?:serverRequestId|requestId)=([^\s]+)/i)?.[1]
-    || (isApprovalResponse ? line.match(/\bid=([^\s]+)/i)?.[1] : null);
-  if (!threadId && isApprovalResponse && requestId) threadId = approvalThreads.get(requestId) || null;
+    || (responseLine ? line.match(/\bid=([^\s]+)/i)?.[1] : null);
+  if (!threadId && responseLine && requestId) threadId = approvalThreads.get(requestId) || null;
 
   const isStart = line.includes('Reasoning summary turn-start config resolved')
     || line.includes('Received turn/started for unknown conversation');
@@ -214,8 +264,12 @@ function processLogLine(line) {
     || line.includes('Received turn/completed for unknown conversation');
   const isFailure = line.includes('[desktop-notifications] show turn-failed')
     || line.includes('[desktop-notifications] show turn-error');
-  const isWaiting = !isApprovalResponse && (approvalMethod || line.includes('request_user_input'));
-  const isResolved = line.includes('serverRequest/resolved') || isApprovalResponse;
+  const userInput = /\bmethod=(?:item\/tool\/requestUserInput|request_user_input)\b/i.test(line);
+  const userFacing = line.includes('reveal requested');
+  const autoReviewed = reviewerByThread.get(threadId) === 'auto_review';
+  const isWaiting = !responseLine && (userInput || (approvalMethod && (!autoReviewed || userFacing)));
+  const isResolved = responseLine && ((requestId && approvalThreads.has(requestId)) ||
+    (approvalMethod && (!autoReviewed || userFacing)));
   const isStopped = line.includes('method=turn/interrupt') && line.includes('errorCode=null');
   const isProgress = line.includes('Reasoning summary item completed')
     || line.includes('Reasoning summary part added');
@@ -324,9 +378,23 @@ function emitPetState() {
   // Log "unknown conversation" events also belong to title generation,
   // ambient suggestions and subagents. Never expose provisional/child entries.
   const visibleActivity = Array.from(activity.entries()).filter(([id]) => sessionReader.isRoot(id));
+  if (quotaTaskStatesInitialized) {
+    for (const [id, item] of visibleActivity) {
+      if ((item.state === 'ready' || item.state === 'failed') &&
+          (previousQuotaTaskStates.get(id) === 'active' || previousQuotaTaskStates.get(id) === 'waiting')) {
+        scheduleQuotaAfterTurn();
+      }
+    }
+  }
+  previousQuotaTaskStates.clear();
+  for (const [id, item] of visibleActivity) previousQuotaTaskStates.set(id, item.state);
+  quotaTaskStatesInitialized = true;
+  // Short automatic approvals often resolve before a human could click.
+  // Hold the animation for a moment; the ledger still tracks every request.
+  const visibleState = item => item.state === 'waiting' && Date.now() - (item.waitingSince || item.lastEventAt) < 1200 ? 'active' : item.state;
   for (const [, item] of visibleActivity) {
-    if (item.state === 'active') active += 1;
-    else if (item.state === 'waiting') waiting += 1;
+    if (visibleState(item) === 'active') active += 1;
+    else if (visibleState(item) === 'waiting') waiting += 1;
     else if (item.state === 'ready') ready += 1;
     else if (item.state === 'failed') failed += 1;
   }
@@ -338,8 +406,8 @@ function emitPetState() {
     return {
       id: threadId,
       title: metadata ? metadata.title : ('任务 ' + String(threadId).slice(-6)),
-      state: item.state,
-      label: stateLabels[item.state] || '进行中',
+      state: visibleState(item),
+      label: stateLabels[visibleState(item)] || '进行中',
       updatedAt: Math.floor(item.lastEventAt / 1000),
     };
   }).sort((a, b) => {
@@ -355,7 +423,7 @@ function emitPetState() {
   else if (active > 0) { petState = 'running'; label = '思考中'; }
 
   const payload = {
-    type: 'pet-state', bridgeVersion: '0.2.3', petState, label,
+    type: 'pet-state', bridgeVersion: '0.2.4', petState, label,
     counts: { total: tasks.length, active: active + waiting, running: active, waiting, ready, failed },
     tasks,
     source: sessionSourceAvailable ? 'session-events+desktop-log' : currentLogPath ? 'desktop-log' : 'unavailable',
@@ -393,13 +461,23 @@ function handleMessage(message) {
   if (message.id && pending.has(message.id)) {
     const kind = pending.get(message.id);
     pending.delete(message.id);
-    if (kind === 'quota') quotaInFlight = false;
+    const quotaRequestRevision = quotaRequestRevisions.get(message.id);
+    quotaRequestRevisions.delete(message.id);
+    if (kind === 'quota') {
+      quotaInFlight = false;
+      if (quotaRefreshQueued) {
+        quotaRefreshQueued = false;
+        setTimeout(readRateLimits, 0);
+      }
+    }
     if (kind === 'threads') threadsInFlight = false;
     if (message.error) {
       persist({ type: 'error', scope: kind, message: message.error.message || 'Codex 返回了未知错误' });
       return;
     }
-    if (kind === 'quota' && message.result) persist(normalizeQuota(message.result));
+    if (kind === 'quota' && message.result && quotaRequestRevision === quotaEventRevision) {
+      persist(normalizeQuota(message.result));
+    }
     if (kind === 'threads' && message.result) {
       rememberThreads(message.result);
       readSessionIndexTitles();
@@ -408,7 +486,11 @@ function handleMessage(message) {
     }
     return;
   }
-  if (message.method === 'account/rateLimits/updated') readRateLimits();
+  if (message.method === 'account/rateLimits/updated') {
+    const snapshot = normalizeQuotaUpdate(message.params, combinedState.quota);
+    if (snapshot) { quotaEventRevision += 1; persist(snapshot); }
+    else readRateLimits();
+  }
   if (message.method === 'thread/name/updated' || message.method === 'thread/started') readThreads();
 }
 
@@ -437,7 +519,7 @@ function startAppServer() {
   send({
     id: 1, method: 'initialize',
     params: {
-      clientInfo: { name: 'bjut-yanxiaobei-codex-pet', title: 'BJUT YanXiaoBei Codex Pet', version: '0.2.3' },
+      clientInfo: { name: 'bjut-yanxiaobei-codex-pet', title: 'BJUT YanXiaoBei Codex Pet', version: '0.2.4' },
       capabilities: { experimentalApi: true, requestAttestation: false, optOutNotificationMethods: [] },
     },
   });
@@ -445,7 +527,7 @@ function startAppServer() {
 
 function handleCommand(command) {
   if (command === 'shutdown') { shutdown(); return; }
-  if (command === 'refresh') { readRateLimits(); readThreads(); pollDesktopActivity(); }
+  if (command === 'refresh') { readRateLimits(true); readThreads(); pollDesktopActivity(); }
   if (command === 'clear-ready') {
     for (const [threadId, item] of activity) {
       if (item.state === 'ready' || item.state === 'failed') activity.delete(threadId);
@@ -466,6 +548,7 @@ function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   clearInterval(quotaTimer);
+  if (quotaAfterTurnTimer) clearTimeout(quotaAfterTurnTimer);
   clearInterval(activityTimer);
   clearInterval(threadTimer);
   try { if (appServer && appServer.stdin) appServer.stdin.end(); } catch {}
@@ -482,7 +565,10 @@ process.on('exit', () => { try { if (appServer) appServer.kill(); } catch {} });
 readSessionIndexTitles();
 pollDesktopActivity();
 startAppServer();
-const quotaTimer = setInterval(readRateLimits, 60_000);
+const quotaTimer = setInterval(() => {
+  const active = [...activity.values()].some(item => item.state === 'active' || item.state === 'waiting');
+  if (Date.now() - lastQuotaRequestAt >= (active ? 20_000 : 60_000)) readRateLimits();
+}, 5000);
 const activityTimer = setInterval(pollDesktopActivity, 1_000);
 const threadTimer = setInterval(() => {
   readSessionIndexTitles();

@@ -26,7 +26,7 @@ foreach ($entry in $manifest.PSObject.Properties) {
         else { 'windows-companion/' + $entry.Name.Substring(7) }
     if ((Get-FileHash -LiteralPath (Join-Path $repoRoot $canonicalRelative)).Hash.ToLowerInvariant() -ne $entry.Value) { throw "Canonical resource changed; run npm run prepare-assets: $canonicalRelative" }
 }
-foreach ($name in @('quota-bridge.js','activity-state.js','platform-paths.js')) {
+foreach ($name in @('quota-bridge.js','activity-state.js','platform-paths.js','update-check.js')) {
     if ((Get-FileHash (Join-Path $repoRoot "windows-companion/$name")).Hash -ne (Get-FileHash (Join-Path $repoRoot "macos-companion/runtime/$name")).Hash) { throw "Mac runtime drift: $name" }
 }
 
@@ -44,7 +44,7 @@ function Get-SourceFiles([string[]]$directories, [string[]]$files) {
             $relative = $file.FullName.Substring($repoRoot.Length+1).Replace('\','/')
             # A positive directory list plus a runtime-data deny list, independent of git status.
             if ($relative -match '(^|/)(\.git|\.codex|\.test-output|node_modules|dist|logs|sessions|__pycache__|\.release-backups)(/|$)' -or
-                $file.Name -match '^(auth\.json|bridge-state\.json|badge-position\.json|ui-settings\.json|mac-settings\.json|autostart-.*\.flag|\.env.*)$' -or
+                $file.Name -match '^(auth\.json|bridge-state\.json|badge-position\.json|ui-settings\.json|mac-settings\.json|update-preferences\.json|autostart-.*\.flag|\.env.*)$' -or
                 $file.Name -match '(\.(log|zip|dmg|db|sqlite|lnk|p12|pfx|pem|key|pyc)|\.(db|sqlite)-[^.]+)$|^(Thumbs\.db|Desktop\.ini|\.DS_Store)$') { continue }
             $items += [pscustomobject]@{ Source=$file.FullName; Relative=$relative }
         }
@@ -74,7 +74,7 @@ function Write-ReleaseZip([string]$name, $entries) {
 $repository = Get-SourceFiles @('codex-native','windows-companion','macos-companion','.github','docs','scripts','tests') @('README.md','CHANGELOG.md','LICENSE.md','.gitignore','.gitattributes','VERSION.txt','START-HERE.html')
 Write-ReleaseZip 'bjut-yanxiaobei-codex-pet' $repository
 
-$native = @(Get-SourceFiles @('codex-native','docs') @('LICENSE.md','scripts/Install-CodexPet.ps1','VERSION.txt','START-HERE.html')) | Where-Object { $_.Relative -notlike 'docs/releases/*' }
+$native = @(Get-SourceFiles @('codex-native','docs') @('LICENSE.md','scripts/Install-CodexPet.ps1','scripts/Uninstall-CodexPet.ps1','scripts/Uninstall-CodexPet.command','VERSION.txt','START-HERE.html')) | Where-Object { $_.Relative -notlike 'docs/releases/*' }
 $native += [pscustomobject]@{ Source=(Join-Path $repoRoot 'docs\releases\native.md'); Relative='README.md' }
 Write-ReleaseZip 'bjut-yanxiaobei-native' $native
 

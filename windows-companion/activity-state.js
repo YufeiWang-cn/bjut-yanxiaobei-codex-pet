@@ -55,6 +55,7 @@ class ActivityLedger {
     if (!item) { this.start(id, at); item = this.latest.get(id); }
     if (!item || item.terminal || at < item.lastEventAt) return;
     item.approvals.add(requestId || 'unknown');
+    if (item.state !== 'waiting') item.waitingSince = at;
     item.state = 'waiting'; item.lastEventAt = at;
     this.activity.set(id, item);
   }
@@ -67,7 +68,7 @@ class ActivityLedger {
       item.approvals.delete('unknown');
     }
     // Ordinary reasoning/tool progress is not proof that an approval was answered.
-    if (item.approvals.size === 0) item.state = 'active';
+    if (item.approvals.size === 0) { item.state = 'active'; item.waitingSince = null; }
     item.lastEventAt = at;
     this.activity.set(id, item);
   }
@@ -90,9 +91,10 @@ function sessionEvent(line) {
       // An escalated command may be handled by Codex's automatic reviewer and
       // must stay active unless the desktop actually reveals an approval UI.
       // Explicit permission/input tools always require a user response.
-      const needsUser = event.name === 'request_permissions' || event.name === 'request_user_input'
-        || /\btools\.(?:request_permissions|request_user_input)\s*\(/.test(input);
-      if (isCall && needsUser) return { state: 'waiting', at, requestId };
+      const promptType = event.name === 'request_user_input' || /\btools\.request_user_input\s*\(/.test(input)
+        ? 'input' : event.name === 'request_permissions' || /\btools\.request_permissions\s*\(/.test(input)
+          ? 'permission' : null;
+      if (isCall && promptType) return { state: 'waiting', at, requestId, promptType };
       if (event.type === 'custom_tool_call_output' || event.type === 'function_call_output') {
         return { state: 'resolved', at, requestId };
       }
@@ -121,8 +123,9 @@ function threadScope(metadata) {
 }
 
 class SessionActivityReader {
-  constructor(root, ledger, io = fs) {
+  constructor(root, ledger, io = fs, shouldWait = () => true) {
     this.root = root; this.ledger = ledger; this.io = io;
+    this.shouldWait = shouldWait;
     this.files = new Map(); this.cursors = new Map(); this.scannedAt = 0;
     this.limit = 4 * 1024 * 1024;
     this.startedAt = Date.now();
@@ -214,7 +217,9 @@ class SessionActivityReader {
     for (const line of lines) {
       const event = sessionEvent(line);
       if (!event) continue;
-      if (event.state === 'waiting') this.ledger.wait(id, event.at, event.requestId);
+      if (event.state === 'waiting') {
+        if (this.shouldWait(id, event)) this.ledger.wait(id, event.at, event.requestId);
+      }
       else if (event.state === 'resolved') {
         const approvals = this.ledger.latest.get(id)?.approvals;
         if (approvals?.has(event.requestId)) this.ledger.progress(id, event.at, true, event.requestId);

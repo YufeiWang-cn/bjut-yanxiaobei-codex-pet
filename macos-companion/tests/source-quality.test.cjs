@@ -32,6 +32,8 @@ test('Mac entrypoints use LF and the required Electron OS/runtime floor',()=>{
   assert.equal(pkg.devDependencies.electron,lock.packages['node_modules/electron'].version);
   assert.equal(pkg.engines.node,lock.packages[''].engines.node);
   assert.equal(pkg.build.extraResources[0].to,'runtime');assert.ok(pkg.build.files.includes('assets/**'));
+  assert.ok(pkg.build.extraResources.some(item=>item.to==='START-HERE.html'));
+  assert.ok(fs.readFileSync(path.join(root,'main.cjs'),'utf8').includes("{label:'使用说明'"));
 });
 test('renderer isolation, CSP and restricted navigation stay enabled',()=>{
   const main=fs.readFileSync(path.join(root,'main.cjs'),'utf8'),html=fs.readFileSync(path.join(root,'ui/index.html'),'utf8'),renderer=fs.readFileSync(path.join(root,'ui/renderer.js'),'utf8');

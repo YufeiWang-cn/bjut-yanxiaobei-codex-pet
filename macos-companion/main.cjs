@@ -1,8 +1,9 @@
 'use strict';
-const {app,BrowserWindow,Menu,Tray,nativeImage,ipcMain,protocol,screen,utilityProcess,dialog,shell,Notification}=require('electron');
+const {app,BrowserWindow,Menu,Tray,nativeImage,ipcMain,protocol,screen,utilityProcess,dialog,shell,Notification,net}=require('electron');
 const fs=require('fs'),path=require('path'),os=require('os');
 const {execFile}=require('child_process');
 const {preferences,sizeFor,clampBounds,threadURI,dragState,safeSnapshot,remaining}=require('./lib/model.cjs');
+const {checkWithFetch:checkRelease,RELEASES}=require(app.isPackaged?path.join(process.resourcesPath,'runtime','update-check.js'):path.join(__dirname,'runtime','update-check.js'));
 const demo=process.argv.includes('--demo'),smoke=process.argv.includes('--smoke-test');
 const root=__dirname;
 const dataRoot=process.env.YANXIAOBEI_DATA_DIR || path.join(os.homedir(),'Library','Application Support','BJUT-YanXiaoBei');
@@ -12,6 +13,43 @@ let win,tray,bridge,heartbeat,watcher,demoTimer,drag=null,quitting=false,watchin
 let state={pet:null,quota:null,error:null},prefs=preferences(),toast=null;
 const entry='pet://app/index.html';
 const settingsFile=path.join(dataRoot,'mac-settings.json');
+const updatePreferencesFile=path.join(dataRoot,'update-preferences.json');
+let updateCheckPromise=null,manualUpdateRequested=false,manualQuotaRefreshPending=false;
+function checkUpdates(manual=false) {
+  if(manual){manualUpdateRequested=true;notice('正在检查 GitHub 更新…');}
+  if(!updateCheckPromise)updateCheckPromise=performUpdateCheck().finally(()=>{updateCheckPromise=null;});
+  return updateCheckPromise;
+}
+async function performUpdateCheck() {
+  try {
+    const local=require('./package.json').version;
+    const result=await checkRelease(local,(url,options)=>net.fetch(url,options));
+    const manual=manualUpdateRequested;manualUpdateRequested=false;
+    if(result.status!=='update') {
+      if(manual){notice('检查完成：没有更高的新版本');await dialog.showMessageBox(win,{type:'info',message:result.latest
+        ?`当前版本 ${local}；GitHub 最新已发布版本 ${result.latest}。没有更高的新版本。`
+        :`当前版本 ${local}；GitHub 暂无可检查的发布包。`});}
+      return;
+    }
+    let ignored='';try{ignored=JSON.parse(fs.readFileSync(updatePreferencesFile,'utf8')).ignoredVersion;}catch{}
+    if(!manual&&ignored===result.latest)return;
+    const {response}=await dialog.showMessageBox(win,{type:'info',title:'燕小北发现新版本',
+      message:`当前版本 ${local} → 最新版本 ${result.latest}`,
+      detail:`更新内容：\n${result.summary}\n\n打开发布页后请选择对应平台的压缩包。`,
+      buttons:['前往更新','忽略此版本','暂时忽略'],defaultId:0,cancelId:2,noLink:true});
+    if(response===0)await shell.openExternal(result.link);
+    if(response===1)fs.writeFileSync(updatePreferencesFile,JSON.stringify({ignoredVersion:result.latest})+'\n',{mode:0o600});
+  } catch(error) {
+    const manual=manualUpdateRequested;manualUpdateRequested=false;
+    if(manual){
+      notice('检查更新失败：'+error.message);
+      const {response}=await dialog.showMessageBox(win,{type:'warning',title:'检查更新失败',
+        message:String(error.message).slice(0,160),detail:'可以打开 GitHub 发布页手动查看。',
+        buttons:['打开发布页','关闭'],defaultId:1,cancelId:1,noLink:true});
+      if(response===0)await shell.openExternal(RELEASES);
+    }
+  }
+}
 function save() { fs.mkdirSync(dataRoot,{recursive:true}); fs.writeFileSync(settingsFile,JSON.stringify(prefs,null,2)+'\n',{mode:0o600}); }
 function packet() { return {pet:safeSnapshot(state.pet,Date.now(),demo||!!bridge),quota:state.quota,error:state.error,
   preferences:{quotaVisible:prefs.quotaVisible,tasksVisible:prefs.tasksVisible},toast:toast&&toast.until>Date.now()?toast:null,demo}; }
@@ -46,6 +84,11 @@ async function openTask(id) {
   if(demo) return notice('演示模式：不会打开真实任务');
   await shell.openExternal(uri);
 }
+async function openGuide() {
+  const guide=app.isPackaged?path.join(process.resourcesPath,'START-HERE.html'):path.join(root,'..','START-HERE.html');
+  if(!fs.existsSync(guide))throw new Error('使用说明缺失，请完整解压或重新安装燕小北。');
+  const error=await shell.openPath(guide);if(error)throw new Error(error);
+}
 async function choose(kind) {
   if(demo) return notice('演示模式不会改变本机配置');
   const chosen=await dialog.showOpenDialog(win,{title:kind==='app'?'选择 Codex.app':'选择 Codex CLI 可执行文件',
@@ -61,10 +104,29 @@ async function loginToggle() {
   const enabled=app.getLoginItemSettings().openAtLogin;
   app.setLoginItemSettings({openAtLogin:!enabled});
   const result=app.getLoginItemSettings();
+  prefs.launchAtLogin=!!result.openAtLogin;save();
   notice(result.status==='requires-approval'?'请在 macOS 登录项设置中确认授权':result.openAtLogin?'已设置登录时启动；请重登录验证':'登录启动已关闭');
   rebuildMenus();
 }
+async function uninstall() {
+  const {response}=await dialog.showMessageBox(win,{type:'warning',title:'卸载燕小北',
+    message:'将关闭桌宠、关闭登录启动并清除燕小北的本地设置与缓存。',
+    detail:'不会删除 Codex 账号、任务或其他宠物。之后请将燕小北 .app / 解压文件夹移入废纸篓。',
+    buttons:['取消','清除并退出'],defaultId:0,cancelId:0,noLink:true});
+  if(response!==1)return;
+  if(path.basename(path.resolve(dataRoot))!=='BJUT-YanXiaoBei'||fs.existsSync(dataRoot)&&fs.lstatSync(dataRoot).isSymbolicLink())throw new Error('数据目录路径异常，未删除。');
+  if(app.isPackaged)app.setLoginItemSettings({openAtLogin:false});
+  await stopBridge();
+  quitting=true;clearInterval(heartbeat);clearInterval(watcher);clearInterval(demoTimer);
+  fs.rmSync(dataRoot,{recursive:true,force:true});
+  app.quit();
+}
 function menuClick(action) { return ()=>Promise.resolve(action()).catch(error=>notice(error.message)); }
+function toggleFollowCodex() {
+  prefs.followCodex=!prefs.followCodex;codexWasRunning=null;save();
+  if(prefs.followCodex)checkCodex();else win.showInactive();
+  rebuildMenus();
+}
 function rebuildMenus() {
   const template=[
     {label:'BJUT 燕小北 · 个人制作',enabled:false},
@@ -73,16 +135,19 @@ function rebuildMenus() {
     {type:'separator'},
     {label:'显示额度气泡',type:'checkbox',checked:prefs.quotaVisible,click:()=>{prefs.quotaVisible=!prefs.quotaVisible;layout();}},
     {label:'显示任务队列',type:'checkbox',checked:prefs.tasksVisible,click:()=>{prefs.tasksVisible=!prefs.tasksVisible;layout();}},
-    {label:'跟随 Codex 显示 / 隐藏',type:'checkbox',checked:prefs.followCodex,enabled:!demo,click:()=>{prefs.followCodex=!prefs.followCodex;codexWasRunning=null;save();checkCodex();rebuildMenus();}},
+    {label:'跟随 Codex 显示 / 隐藏',type:'checkbox',checked:prefs.followCodex,enabled:!demo,click:toggleFollowCodex},
     {label:'登录时启动（安装的 .app）',type:'checkbox',checked:!demo&&app.isPackaged&&app.getLoginItemSettings().openAtLogin,enabled:!demo&&app.isPackaged,click:menuClick(loginToggle)},
     {label:'系统完成通知',type:'checkbox',checked:prefs.notify,enabled:!demo,click:()=>{prefs.notify=!prefs.notify;save();}},
     {type:'separator'},
     {label:'刷新额度与任务',click:()=>command('refresh')},
+    {label:'检查更新',click:menuClick(()=>checkUpdates(true))},
+    {label:'使用说明',click:menuClick(openGuide)},
     {label:'清除完成 / 错误提醒',click:()=>command('clear-ready')},
     {label:'重新连接数据桥',enabled:!demo,click:menuClick(restartBridge)},
     {label:'选择 Codex 应用…',enabled:!demo,click:menuClick(()=>choose('app'))},
     {label:'选择 Codex CLI…',enabled:!demo,click:menuClick(()=>choose('cli'))},
     {label:'打开本地配置目录',enabled:!demo,click:menuClick(async()=>{const error=await shell.openPath(dataRoot);if(error)throw new Error(error);})},
+    {label:'卸载并清除本地数据…',enabled:!demo,click:menuClick(uninstall)},
     {type:'separator'},
     {label:'关闭桌宠',click:()=>app.quit()},
   ];
@@ -92,6 +157,10 @@ function rebuildMenus() {
 }
 function command(value) {
   if(demo) { if(value==='clear-ready') {state.pet={...state.pet,petState:'idle',label:'空闲中',counts:{total:0,running:0,active:0,waiting:0,ready:0,failed:0},tasks:[]};broadcast();}return; }
+  if(value==='refresh'){
+    if(!bridge)return notice('数据桥未连接，请先重新连接');
+    manualQuotaRefreshPending=true;notice('正在刷新额度与任务…');
+  }
   bridge?.postMessage(value);
 }
 function receive(payload) {
@@ -105,8 +174,14 @@ function receive(payload) {
       notice('已完成 · '+completed.title);
       if(prefs.notify&&Notification.isSupported())new Notification({title:'燕小北 · 任务完成',body:String(completed.title).slice(0,100),silent:true}).show();
     }
-  } else if(payload.type==='snapshot') {state.quota=payload;if(state.error?.scope==='quota')state.error=null;}
-  else if(payload.type==='error') state.error={scope:payload.scope,message:String(payload.message).slice(0,240)};
+  } else if(payload.type==='snapshot') {
+    state.quota=payload;if(state.error?.scope==='quota')state.error=null;
+    if(manualQuotaRefreshPending){manualQuotaRefreshPending=false;notice('额度已更新');}
+  }
+  else if(payload.type==='error') {
+    state.error={scope:payload.scope,message:String(payload.message).slice(0,240)};
+    if(payload.scope==='quota'&&manualQuotaRefreshPending){manualQuotaRefreshPending=false;notice('额度刷新失败：'+state.error.message);}
+  }
   broadcast();
 }
 function startBridge() {
@@ -129,8 +204,12 @@ async function checkCodex() {
   watching=true;
   try {
     const target=codexApp();
+    if(!target){
+      if(codexWasRunning!=='missing'){win.showInactive();notice('未找到 Codex.app；请从菜单选择 Codex 应用');codexWasRunning='missing';}
+      return;
+    }
     const listing=await execute('/bin/ps',['-axo','comm=']);
-    const running=!!target&&listing.split('\n').some(line=>line.trim().startsWith(target+'/Contents/MacOS/'));
+    const running=listing.split('\n').some(line=>line.trim().startsWith(target+'/Contents/MacOS/'));
     if(running!==codexWasRunning) { if(running)win.showInactive();else win.hide();codexWasRunning=running; }
   } catch {notice('无法检查 Codex 运行状态；菜单栏仍可找回桌宠');}finally{watching=false;}
 }
@@ -217,8 +296,22 @@ else {
   app.whenReady().then(async()=>{
     if(process.platform!=='darwin'&&!demo) {dialog.showErrorBox('macOS 版本','Windows 请使用 windows-companion；开发预览可使用 --demo。');app.quit();return;}
     fs.mkdirSync(dataRoot,{recursive:true});
-    try{prefs=preferences(JSON.parse(fs.readFileSync(settingsFile,'utf8')));}catch{}
+    let previousSettings=null;
+    try{previousSettings=JSON.parse(fs.readFileSync(settingsFile,'utf8'));}catch{}
     if(demo)prefs=preferences();
+    else if(previousSettings){
+      let previousLogin=false;
+      try{previousLogin=!!app.getLoginItemSettings().openAtLogin;}catch{}
+      prefs=preferences({...previousSettings,launchAtLogin:typeof previousSettings.launchAtLogin==='boolean'
+        ?previousSettings.launchAtLogin:previousLogin});
+    } else {
+      prefs=preferences();
+      if(app.isPackaged){
+        try{app.setLoginItemSettings({openAtLogin:true});prefs.launchAtLogin=!!app.getLoginItemSettings().openAtLogin;}
+        catch{prefs.launchAtLogin=false;}
+      }
+      save();
+    }
     protocol.handle('pet',request=>{
       const url=new URL(request.url);if(url.host!=='app')return new Response('Not found',{status:404});
       const relative=decodeURIComponent(url.pathname).replace(/^\/+/,''),mapped=relative.startsWith('assets/')?relative:'ui/'+(relative||'index.html');
@@ -242,6 +335,7 @@ else {
     await win.loadURL(entry);
     if(!smoke)win.showInactive();
     if(demo){demoState();demoTimer=setInterval(demoState,4000);}else startBridge();
+    if(!demo&&!smoke)setTimeout(()=>checkUpdates(false),1500);
     heartbeat=setInterval(broadcast,1000);watcher=setInterval(checkCodex,2000);checkCodex();
     if(smoke) await smokeTest();
   }).catch(error=>{console.error(error);if(smoke)app.exit(1);else {dialog.showErrorBox('燕小北启动失败',error.message);app.quit();}});

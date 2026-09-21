@@ -12,7 +12,7 @@ const binaryExtensions = new Set(['.png', '.gif', '.webp']);
 const textExtensions = new Set(['.md', '.txt', '.json', '.js', '.cjs', '.ps1', '.xaml', '.html', '.css', '.vbs', '.cmd', '.command', '.yml', '.yaml', '.py']);
 const sha256 = data => crypto.createHash('sha256').update(data).digest('hex');
 function privateFile(name) {
-  return /^(?:auth\.json|bridge-state\.json|badge-position\.json|ui-settings\.json|mac-settings\.json|autostart-.*\.flag|\.env.*)$/i.test(name) ||
+  return /^(?:auth\.json|bridge-state\.json|badge-position\.json|ui-settings\.json|mac-settings\.json|update-preferences\.json|autostart-.*\.flag|\.env.*)$/i.test(name) ||
     /(?:\.(?:log|zip|dmg|db|sqlite|lnk|p12|pfx|pem|key|pyc)|\.(?:db|sqlite)-[^.]+)$/i.test(name) || /^(?:Thumbs\.db|Desktop\.ini|\.DS_Store)$/i.test(name);
 }
 function secretLike(text) {
@@ -93,9 +93,9 @@ function audit(root, { syntax = true, complete = true } = {}) {
     const pkg=json('macos-companion/package.json'), lock=json('macos-companion/package-lock.json');
     if (pkg?.version !== version || lock?.version !== version || lock?.packages?.['']?.version !== version) fail('macos-companion/package.json','version mismatch');
     const manifest=json('macos-companion/assets/manifest.json');
-    if (manifest && Object.keys(manifest).length !== 62) fail('macos-companion/assets/manifest.json','expected 62 shared resources');
+    if (manifest && Object.keys(manifest).length !== 63) fail('macos-companion/assets/manifest.json','expected 63 shared resources');
     for (const [relative, expected] of Object.entries(manifest || {})) {
-      if (!/^(?:runtime\/(?:quota-bridge|activity-state|platform-paths)\.js|assets\/(?:LICENSE\.md|animation-timing\.json|frames\/[a-z-]+\/\d{2}\.png))$/.test(relative)) { fail(relative,'unexpected shared resource'); continue; }
+      if (!/^(?:runtime\/(?:quota-bridge|activity-state|platform-paths|update-check)\.js|assets\/(?:LICENSE\.md|animation-timing\.json|frames\/[a-z-]+\/\d{2}\.png))$/.test(relative)) { fail(relative,'unexpected shared resource'); continue; }
       const bundled = files.find(f=>f.path === 'macos-companion/'+relative);
       if (bundled?.sha256 !== expected) fail(relative,'bundled resource hash mismatch');
       const canonical = relative.startsWith('runtime/') ? 'windows-companion/'+relative.slice(8) : relative==='assets/LICENSE.md' ? 'LICENSE.md' : 'windows-companion/'+relative.slice(7);
