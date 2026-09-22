@@ -9,6 +9,10 @@ const ATOM = RELEASES + '.atom';
 const REQUEST_DEADLINE_MS = 5000;
 const WINDOWS_DEADLINE_MS = 7500;
 const WINDOWS_PROXY_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings';
+function releaseDownload(remote, platform) {
+  if (!version(remote) || !/^(?:windows|macos|native)$/.test(platform)) throw new Error('下载版本或平台无效');
+  return `${RELEASES}/download/v${remote}/bjut-yanxiaobei-${platform}.zip`;
+}
 function version(value) {
   const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(String(value || '').trim());
   return match ? match.slice(1).map(Number) : null;
@@ -48,7 +52,8 @@ function selectRelease(items, local) {
   const difference = compare(remote, local);
   return {status:difference > 0 ? 'update' : difference < 0 ? 'ahead' : 'current',local,latest:remote,
     link:latest.html_url,
-    summary:summarizeReleaseNotes(latest.body)};
+    summary:summarizeReleaseNotes(latest.body),
+    downloads:{windows:releaseDownload(remote,'windows'),macos:releaseDownload(remote,'macos'),native:releaseDownload(remote,'native')}};
 }
 function decodeEntities(value) {
   return value.replace(/&(#x[0-9a-f]+|#[0-9]+|amp|lt|gt|quot|apos|nbsp);/gi,(entity,name) => {
@@ -81,7 +86,8 @@ function selectAtomRelease(xml, local) {
   const latest=candidates[0],remote=latest.tag.replace(/^v/,'');
   const difference=compare(remote,local);
   return {status:difference > 0 ? 'update' : difference < 0 ? 'ahead' : 'current',
-    local,latest:remote,link:latest.link,summary:latest.summary};
+    local,latest:remote,link:latest.link,summary:latest.summary,
+    downloads:{windows:releaseDownload(remote,'windows'),macos:releaseDownload(remote,'macos'),native:releaseDownload(remote,'native')}};
 }
 function fetchReleases(get = https.get, deadlineMs = REQUEST_DEADLINE_MS) {
   return new Promise((resolve,reject) => {
@@ -281,4 +287,4 @@ if (require.main === module) {
     process.stdout.write(asciiJSON({status:'error',local,message:error.message})+'\n');
   });
 }
-module.exports={version,compare,asciiJSON,summarizeReleaseNotes,selectRelease,selectAtomRelease,fetchReleases,fetchReleasesWithFetch,fetchWindowsFast,fetchWindowsReleases,resolveWindowsProxy,check,checkWithFetch,checkWindows,API,ATOM,RELEASES,REQUEST_DEADLINE_MS,WINDOWS_DEADLINE_MS};
+module.exports={version,compare,asciiJSON,releaseDownload,summarizeReleaseNotes,selectRelease,selectAtomRelease,fetchReleases,fetchReleasesWithFetch,fetchWindowsFast,fetchWindowsReleases,resolveWindowsProxy,check,checkWithFetch,checkWindows,API,ATOM,RELEASES,REQUEST_DEADLINE_MS,WINDOWS_DEADLINE_MS};

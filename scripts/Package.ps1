@@ -80,9 +80,12 @@ Write-ReleaseZip 'bjut-yanxiaobei-native' $native
 
 $windows = @(Get-SourceFiles @('windows-companion','docs') @('LICENSE.md','CHANGELOG.md','VERSION.txt','START-HERE.html')) | Where-Object { $_.Relative -notlike 'docs/releases/*' }
 $windows += [pscustomobject]@{ Source=(Join-Path $repoRoot 'docs\releases\windows.md'); Relative='README.md' }
+$windows += [pscustomobject]@{ Source=(Join-Path $repoRoot 'windows-companion\Update.vbs'); Relative='Update.vbs' }
+$windows += [pscustomobject]@{ Source=(Join-Path $repoRoot 'windows-companion\Uninstall.vbs'); Relative='Uninstall.vbs' }
 Write-ReleaseZip 'bjut-yanxiaobei-windows' $windows
 
 $macos = @(Get-SourceFiles @('macos-companion','docs') @('LICENSE.md','CHANGELOG.md','VERSION.txt','START-HERE.html')) | Where-Object { $_.Relative -notlike 'docs/releases/*' }
 $macos += [pscustomobject]@{ Source=(Join-Path $repoRoot 'docs\releases\macos.md'); Relative='README.md' }
+$macos += [pscustomobject]@{ Source=(Join-Path $repoRoot 'macos-companion\Uninstall.command'); Relative='Uninstall.command' }
 Write-ReleaseZip 'bjut-yanxiaobei-macos' $macos
 [IO.File]::WriteAllLines((Join-Path $OutputDirectory 'SHA256SUMS.txt'), $archiveChecksums, [Text.UTF8Encoding]::new($false))

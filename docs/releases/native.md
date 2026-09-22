@@ -1,6 +1,6 @@
 # BJUT 燕小北 · Codex 原生素材版
 
-当前源码 **0.2.5**。第一次安装请先双击本包根目录 **START-HERE.html**；它会用浏览器打开逐步说明，无需开发工具。也可查看 docs/BEGINNER.md。版本号见 VERSION.txt。
+当前源码 **0.2.6**。第一次安装请先双击本包根目录 **START-HERE.html**；它会用浏览器打开逐步说明，无需开发工具。也可查看 docs/BEGINNER.md。版本号见 VERSION.txt。
 
 这是个人制作、由 Codex 桌宠宿主加载的 v2 素材包，不包含独立额度窗口，也不是官方出品。
 

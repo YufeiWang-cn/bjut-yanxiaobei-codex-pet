@@ -11,7 +11,7 @@ let cases = 0;
 function test(name, fn) { fn(); cases++; console.log('PASS: ' + name); }
 function bridge(platform = 'win32') {
   const context = vm.createContext({ require: n => n === 'fs' ? {mkdirSync(){},writeFileSync(){}} : require(n),
-    __dirname: appRoot, Buffer, Date, process: {env:{},platform,stdout:{write(){}}} });
+    __dirname: appRoot, Buffer, Date, setTimeout:()=>1, clearTimeout(){}, process: {env:{},platform,stdout:{write(){}}} });
   vm.runInContext(source, context);
   return code => vm.runInContext(code, context);
 }
@@ -52,6 +52,23 @@ test('late root identification exposes an already-running real turn', () => {
   assert.equal(run('combinedState.pet.counts.total'), 0);
   trust(run); run('emitPetState()');
   assert.equal(run('combinedState.pet.counts.running'), 1);
+});
+test('app-server status exposes a source-less interactive thread', () => {
+  const run=bridge();
+  run(`rememberThreads({data:[{id:'${root}',name:'Fresh computer task',updatedAt:Date.now()/1000,status:{type:'active',activeFlags:[]}}]});emitPetState()`);
+  assert.equal(run('combinedState.pet.petState'),'running');
+  assert.equal(run('combinedState.pet.tasks[0].title'),'Fresh computer task');
+  assert.equal(run('combinedState.pet.source'),'app-server-status+session-events');
+});
+test('app-server approval flag waits and idle transition completes', () => {
+  const run=bridge();trust(run);
+  run(`applyRuntimeStatus('${root}',{type:'active',activeFlags:[]},Date.now());emitPetState()`);
+  run(`applyRuntimeStatus('${root}',{type:'active',activeFlags:['waitingOnApproval']},Date.now()+2000);emitPetState()`);
+  assert.equal(run(`activity.get('${root}').state`),'waiting');
+  run(`activity.get('${root}').waitingSince=Date.now()-1500;emitPetState()`);
+  assert.equal(run('combinedState.pet.tasks[0].state'),'waiting');
+  run(`applyRuntimeStatus('${root}',{type:'idle'},Date.now()+3000);emitPetState()`);
+  assert.equal(run('combinedState.pet.tasks[0].state'),'ready');
 });
 for (const platform of ['win32','darwin']) test(platform+' shows only the parent while child/guardian runs or completes', () => {
   const run = bridge(platform); trust(run);
@@ -145,6 +162,13 @@ try {
     const ids=reader.recentIds(Date.now(),60_000);
     assert.ok(ids.includes(recent));reader.poll(new Set(ids));
     assert.equal(reader.isRoot(recent),true);assert.equal(activity.get(recent).state,'active');
+  });
+  test('thread_source user metadata is accepted across Codex schema versions', () => {
+    const alternate='00000000-0000-4000-8000-000000000010';
+    fs.writeFileSync(fileFor(alternate),JSON.stringify({type:'session_meta',payload:{id:alternate,thread_source:'user'}})+'\n'+event('task_started',Date.now(),turn));
+    const activity=new Map(),ledger=new ActivityLedger(activity),reader=new SessionActivityReader(temp,ledger);
+    reader.poll(reader.recentIds(Date.now(),60_000));
+    assert.equal(reader.isRoot(alternate),true);assert.equal(activity.get(alternate).state,'active');
   });
   test('partial or mismatched session metadata is never accepted as a root', () => {
     for(const prefix of ['{"type":"session_meta"',header(child),JSON.stringify({type:'session_meta',payload:{id:root}})+'\n']){

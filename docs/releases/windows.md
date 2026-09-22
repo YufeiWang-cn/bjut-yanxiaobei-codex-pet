@@ -1,17 +1,17 @@
 # BJUT 燕小北 · Windows 独立增强版
 
-当前源码 **0.2.5**。第一次安装请先双击本包根目录 **START-HERE.html**；它会用浏览器打开逐步说明，无需开发工具。也可查看 docs/BEGINNER.md。版本号见 VERSION.txt。
+当前源码 **0.2.6**。第一次安装请先双击本包根目录 **START-HERE.html**；它会用浏览器打开逐步说明，无需开发工具。也可查看 docs/BEGINNER.md。版本号见 VERSION.txt。
 
 一个带额度气泡和任务活动面板的独立桌宠。无需安装原生素材版；需要 Windows、已登录的 Codex 桌面客户端和 Node.js。
 
-当前版本 0.2.5 修复部分电脑任务始终空闲，兼容更多日志目录和会话来源，并在日志缺失时从最近本机会话发现正在运行的顶层 Codex 任务。任务活动只跟踪 Codex，普通 ChatGPT 聊天不读取、不展示；任务行保留 `Codex` 来源标识。更新检查、审批识别和卸载功能继续保留。卸载先关闭桌宠，再运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\windows-companion\Uninstall.ps1 -Confirm:$false`，最后删除解压文件夹。详见 docs/INSTALL.md。
+当前版本 0.2.6 优先使用 Codex App Server 的运行时状态，兼容全新用户目录、MSIX 安装、不同会话字段与 App Server 返回的数据路径。任务活动只跟踪 Codex，普通 ChatGPT 聊天不读取、不展示；任务行保留 `Codex` 来源标识。更新可从右键“检查更新”点击“立即更新”，也可双击根目录 `Update.vbs`；卸载只通过根目录 `Uninstall.vbs` 进入，可选择保留或清除设置。Codex 退出后桌宠会在约 1 秒内自动关闭。详见 docs/INSTALL.md。
 
 ## 快速开始
 
 1. 安装 Node.js 22 或更新版本并启用 PATH（测试使用 24.19.0）。
 2. 完整解压本包；保留 `windows-companion` 内所有文件。
 3. 双击 `windows-companion/Start.vbs`。默认入口不会留下终端窗口。
-4. 首次启动后默认开启跟随 Codex 启动；右键可关闭或重新开启，也能分别隐藏额度气泡 / 任务队列、打开“使用说明”或关闭桌宠。
+4. 首次启动后默认开启跟随 Codex 启动；Codex 退出后桌宠自动关闭。右键可关闭或重新开启跟随，也能隐藏面板、检查更新或打开“使用说明”；卸载请双击根目录工具。
 
 启动错误可用 `Start-Debug.cmd` 查看。它是调试入口，会故意保留终端。默认启动器使用 Windows PowerShell 5.1；PowerShell 7 手动入口、禁用 VBScript 的设备、更新及卸载见 `docs/INSTALL.md`。
 

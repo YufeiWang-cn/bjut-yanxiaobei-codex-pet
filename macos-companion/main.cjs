@@ -14,9 +14,10 @@ let state={pet:null,quota:null,error:null},prefs=preferences(),toast=null;
 const entry='pet://app/index.html';
 const settingsFile=path.join(dataRoot,'mac-settings.json');
 const updatePreferencesFile=path.join(dataRoot,'update-preferences.json');
-let updateCheckPromise=null,manualUpdateRequested=false,manualQuotaRefreshPending=false;
+let updateCheckPromise=null,manualUpdateRequested=false,manualQuotaRefreshPending=false,autoUpdateAttempts=0;
 function checkUpdates(manual=false) {
   if(manual){manualUpdateRequested=true;notice('正在检查 GitHub 更新…');}
+  else autoUpdateAttempts++;
   if(!updateCheckPromise)updateCheckPromise=performUpdateCheck().finally(()=>{updateCheckPromise=null;});
   return updateCheckPromise;
 }
@@ -47,7 +48,7 @@ async function performUpdateCheck() {
         message:String(error.message).slice(0,160),detail:'可以打开 GitHub 发布页手动查看。',
         buttons:['打开发布页','关闭'],defaultId:1,cancelId:1,noLink:true});
       if(response===0)await shell.openExternal(RELEASES);
-    }
+    } else if(autoUpdateAttempts<2)setTimeout(()=>checkUpdates(false),8000);
   }
 }
 function save() { fs.mkdirSync(dataRoot,{recursive:true}); fs.writeFileSync(settingsFile,JSON.stringify(prefs,null,2)+'\n',{mode:0o600}); }
@@ -108,22 +109,9 @@ async function loginToggle() {
   notice(result.status==='requires-approval'?'请在 macOS 登录项设置中确认授权':result.openAtLogin?'已设置登录时启动；请重登录验证':'登录启动已关闭');
   rebuildMenus();
 }
-async function uninstall() {
-  const {response}=await dialog.showMessageBox(win,{type:'warning',title:'卸载燕小北',
-    message:'将关闭桌宠、关闭登录启动并清除燕小北的本地设置与缓存。',
-    detail:'不会删除 Codex 账号、任务或其他宠物。之后请将燕小北 .app / 解压文件夹移入废纸篓。',
-    buttons:['取消','清除并退出'],defaultId:0,cancelId:0,noLink:true});
-  if(response!==1)return;
-  if(path.basename(path.resolve(dataRoot))!=='BJUT-YanXiaoBei'||fs.existsSync(dataRoot)&&fs.lstatSync(dataRoot).isSymbolicLink())throw new Error('数据目录路径异常，未删除。');
-  if(app.isPackaged)app.setLoginItemSettings({openAtLogin:false});
-  await stopBridge();
-  quitting=true;clearInterval(heartbeat);clearInterval(watcher);clearInterval(demoTimer);
-  fs.rmSync(dataRoot,{recursive:true,force:true});
-  app.quit();
-}
 function menuClick(action) { return ()=>Promise.resolve(action()).catch(error=>notice(error.message)); }
 function toggleFollowCodex() {
-  prefs.followCodex=!prefs.followCodex;codexWasRunning=null;save();
+  prefs.followCodex=!prefs.followCodex;save();
   if(prefs.followCodex)checkCodex();else win.showInactive();
   rebuildMenus();
 }
@@ -135,19 +123,18 @@ function rebuildMenus() {
     {type:'separator'},
     {label:'显示额度气泡',type:'checkbox',checked:prefs.quotaVisible,click:()=>{prefs.quotaVisible=!prefs.quotaVisible;layout();}},
     {label:'显示任务队列',type:'checkbox',checked:prefs.tasksVisible,click:()=>{prefs.tasksVisible=!prefs.tasksVisible;layout();}},
-    {label:'跟随 Codex 显示 / 隐藏',type:'checkbox',checked:prefs.followCodex,enabled:!demo,click:toggleFollowCodex},
+    {label:'跟随 Codex 显示',type:'checkbox',checked:prefs.followCodex,enabled:!demo,click:toggleFollowCodex},
     {label:'登录时启动（安装的 .app）',type:'checkbox',checked:!demo&&app.isPackaged&&app.getLoginItemSettings().openAtLogin,enabled:!demo&&app.isPackaged,click:menuClick(loginToggle)},
     {label:'系统完成通知',type:'checkbox',checked:prefs.notify,enabled:!demo,click:()=>{prefs.notify=!prefs.notify;save();}},
     {type:'separator'},
-    {label:'刷新额度与任务',click:()=>command('refresh')},
-    {label:'检查更新',click:menuClick(()=>checkUpdates(true))},
-    {label:'使用说明',click:menuClick(openGuide)},
+    {label:'刷新额度与状态',click:()=>command('refresh')},
     {label:'清除完成 / 错误提醒',click:()=>command('clear-ready')},
+    {label:'使用说明',click:menuClick(openGuide)},
+    {label:'检查更新',click:menuClick(()=>checkUpdates(true))},
     {label:'重新连接数据桥',enabled:!demo,click:menuClick(restartBridge)},
     {label:'选择 Codex 应用…',enabled:!demo,click:menuClick(()=>choose('app'))},
     {label:'选择 Codex CLI…',enabled:!demo,click:menuClick(()=>choose('cli'))},
     {label:'打开本地配置目录',enabled:!demo,click:menuClick(async()=>{const error=await shell.openPath(dataRoot);if(error)throw new Error(error);})},
-    {label:'卸载并清除本地数据…',enabled:!demo,click:menuClick(uninstall)},
     {type:'separator'},
     {label:'关闭桌宠',click:()=>app.quit()},
   ];
@@ -159,7 +146,7 @@ function command(value) {
   if(demo) { if(value==='clear-ready') {state.pet={...state.pet,petState:'idle',label:'空闲中',counts:{total:0,running:0,active:0,waiting:0,ready:0,failed:0},tasks:[]};broadcast();}return; }
   if(value==='refresh'){
     if(!bridge)return notice('数据桥未连接，请先重新连接');
-    manualQuotaRefreshPending=true;notice('正在刷新额度与任务…');
+    manualQuotaRefreshPending=true;notice('正在刷新额度与状态…');
   }
   bridge?.postMessage(value);
 }
@@ -200,7 +187,7 @@ async function stopBridge() {
 }
 async function restartBridge() {await stopBridge();if(!quitting)startBridge();}
 async function checkCodex() {
-  if(demo||!prefs.followCodex||watching)return;
+  if(demo||watching||quitting)return;
   watching=true;
   try {
     const target=codexApp();
@@ -210,7 +197,12 @@ async function checkCodex() {
     }
     const listing=await execute('/bin/ps',['-axo','comm=']);
     const running=listing.split('\n').some(line=>line.trim().startsWith(target+'/Contents/MacOS/'));
-    if(running!==codexWasRunning) { if(running)win.showInactive();else win.hide();codexWasRunning=running; }
+    if(running!==codexWasRunning) {
+      if(running&&prefs.followCodex)win.showInactive();
+      else if(codexWasRunning===true){quitting=true;await stopBridge();app.quit();return;}
+      else if(prefs.followCodex)win.hide();
+      codexWasRunning=running;
+    }
   } catch {notice('无法检查 Codex 运行状态；菜单栏仍可找回桌宠');}finally{watching=false;}
 }
 function demoState() {
@@ -336,7 +328,7 @@ else {
     if(!smoke)win.showInactive();
     if(demo){demoState();demoTimer=setInterval(demoState,4000);}else startBridge();
     if(!demo&&!smoke)setTimeout(()=>checkUpdates(false),1500);
-    heartbeat=setInterval(broadcast,1000);watcher=setInterval(checkCodex,2000);checkCodex();
+    heartbeat=setInterval(broadcast,1000);watcher=setInterval(checkCodex,1000);checkCodex();
     if(smoke) await smokeTest();
   }).catch(error=>{console.error(error);if(smoke)app.exit(1);else {dialog.showErrorBox('燕小北启动失败',error.message);app.quit();}});
   app.on('activate',()=>win?.show());

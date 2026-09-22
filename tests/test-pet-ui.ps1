@@ -66,6 +66,13 @@ $saved=Get-Content -Raw -Encoding UTF8 -LiteralPath $settingsPath | ConvertFrom-
 Assert (!$saved.quotaVisible -and $saved.tasksVisible) 'Visibility preferences not persisted'
 Initialize-PetMenu
 Assert (@($window.ContextMenu.Items | Where-Object { $_ -is [Windows.Controls.MenuItem] -and $_.Header -eq '使用说明' }).Count -eq 1) 'Usage guide menu item missing'
+$menuLabels=@($window.ContextMenu.Items | Where-Object { $_ -is [Windows.Controls.MenuItem] } | ForEach-Object Header)
+Assert ($menuLabels -notcontains '卸载燕小北…') 'Uninstall action must not be exposed in the pet menu'
+Assert ($menuLabels -contains '跟随 Codex 启动') 'Follow Codex menu label is incorrect'
+$middle=@('刷新额度与状态','清除完成 / 错误提醒','使用说明','检查更新')
+for($i=0;$i -lt $middle.Count-1;$i++){
+    Assert ([Array]::IndexOf($menuLabels,$middle[$i]) -lt [Array]::IndexOf($menuLabels,$middle[$i+1])) 'Middle menu order is incorrect'
+}
 $window.ContextMenu.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.ContextMenu]::OpenedEvent))
 Assert ($quotaMenuItem.Header -eq '显示额度气泡') 'Hidden quota menu label incorrect'
 $quotaMenuItem.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.MenuItem]::ClickEvent))

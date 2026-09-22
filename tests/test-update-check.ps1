@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $repoRoot 'windows-companion\Runtime.ps1')
 $source = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $repoRoot 'windows-companion\CodexQuotaPet.ps1')
@@ -17,9 +17,13 @@ if (-not $notes -or $notes.TextWrapping -ne [Windows.TextWrapping]::Wrap -or
     $notes.HorizontalScrollBarVisibility -ne [Windows.Controls.ScrollBarVisibility]::Disabled) {
     throw 'Update notes are not wrapped and vertically scrollable.'
 }
-if (@($dialog.Content.Children | Where-Object { $_ -is [Windows.Controls.StackPanel] })[0].Children.Count -ne 3) {
+$choiceButtons=@($dialog.Content.Children | Where-Object { $_ -is [Windows.Controls.StackPanel] })[0].Children
+if ($choiceButtons.Count -ne 3) {
     throw 'Update dialog choices are incomplete.'
 }
+if (($choiceButtons | ForEach-Object Content) -notcontains '立即更新' -or
+    ($choiceButtons | ForEach-Object Content) -notcontains '忽略此版本' -or
+    ($choiceButtons | ForEach-Object Content) -notcontains '暂时忽略') { throw 'Update choices changed semantics.' }
 $dialog.Content.Measure([Windows.Size]::new(520, 350))
 $dialog.Content.Arrange([Windows.Rect]::new(0, 0, 520, 350))
 $dialog.Content.UpdateLayout()
@@ -36,6 +40,9 @@ try { $encoder.Save($stream) } finally { $stream.Dispose() }
 $dialog.Close(); $window.Close()
 if ($source -notmatch '\$info\.StandardOutputEncoding\s*=\s*\[Text\.Encoding\]::UTF8') {
     throw 'Windows update process must explicitly decode Node UTF-8 output.'
+}
+foreach($required in @('Schedule-AutoUpdateCheck 1500','Schedule-AutoUpdateCheck 8000','ignoredVersion','Start-UpdateProgram')){
+    if(-not $source.Contains($required)){throw "Automatic update workflow is missing: $required"}
 }
 $info = [Diagnostics.ProcessStartInfo]::new()
 $info.FileName = Get-CompanionNode

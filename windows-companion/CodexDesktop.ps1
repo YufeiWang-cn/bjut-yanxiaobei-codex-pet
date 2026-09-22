@@ -5,6 +5,11 @@ function Test-CodexDesktopIdentity([string]$name, [string]$path, [string]$appId)
         $path -match '[\\/]OpenAI\.Codex_[^\\/]+[\\/]' -or
         ($name -ieq 'Codex' -and $path -notmatch '[\\/]OpenAI[\\/]Codex[\\/]bin[\\/]'))
 }
+function Get-PetCloseDecision([int]$missingPolls, [bool]$isCodexRunning, [int]$threshold = 2) {
+    if ($isCodexRunning) { return [pscustomobject]@{ Close = $false; MissingPolls = 0 } }
+    $next = $missingPolls + 1
+    return [pscustomobject]@{ Close = $next -ge $threshold; MissingPolls = $next }
+}
 function Get-CodexApplicationId([int]$processId) {
     if (-not ('YanXiaoBei.ApplicationIdentity' -as [type])) {
         Add-Type -TypeDefinition @'

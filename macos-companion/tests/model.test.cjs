@@ -74,12 +74,13 @@ test('all 63 bundled resources match their checksums and shared source',()=>{
   const timing=JSON.parse(fs.readFileSync(path.join(root,'assets/animation-timing.json')));
   assert.equal(timing.companion.failed.reduce((a,b)=>a+b,0),3600);
 });
-test('utility-process payload transport; recent root session discovery, no subagents',()=>{
+test('utility-process payload transport; App Server roots are accepted, no subagents',()=>{
   const runtime=path.join(root,'runtime'),out=[];
   const context=vm.createContext({__dirname:runtime,Buffer,Date,require:name=>name==='fs'?{mkdirSync(){},writeFileSync(){}}:require(name),
     process:{platform:'darwin',env:{},parentPort:{postMessage:data=>out.push(data)}}});
   vm.runInContext(fs.readFileSync(path.join(runtime,'quota-bridge.js'),'utf8').split("process.stdin.setEncoding('utf8');")[0],context);
   vm.runInContext(`rememberThreads({data:[{id:'recent',source:'vscode',updatedAt:Date.now()/1000},{id:'old',source:'vscode',updatedAt:1},{id:'unknown',updatedAt:Date.now()/1000},{id:'agent',updatedAt:Date.now()/1000,source:{subAgent:{}}}]});persist({type:'snapshot',primary:null});`,context);
   assert.equal(out[0].type,'snapshot');assert.equal(vm.runInContext('observedThreads.has("recent")',context),true);
-  assert.equal(vm.runInContext('observedThreads.has("old")||observedThreads.has("agent")||observedThreads.has("unknown")',context),false);
+  assert.equal(vm.runInContext('observedThreads.has("unknown")',context),true);
+  assert.equal(vm.runInContext('observedThreads.has("old")||observedThreads.has("agent")',context),false);
 });

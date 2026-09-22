@@ -4,7 +4,7 @@ const {EventEmitter}=require('node:events');
 const http=require('node:http');
 const path=require('node:path');
 const {execFile}=require('node:child_process');
-const {selectRelease,selectAtomRelease,summarizeReleaseNotes,compare,asciiJSON,fetchReleases,fetchReleasesWithFetch,fetchWindowsFast,fetchWindowsReleases,resolveWindowsProxy,checkWithFetch,checkWindows,ATOM,API,REQUEST_DEADLINE_MS}=require('../windows-companion/update-check');
+const {selectRelease,selectAtomRelease,releaseDownload,summarizeReleaseNotes,compare,asciiJSON,fetchReleases,fetchReleasesWithFetch,fetchWindowsFast,fetchWindowsReleases,resolveWindowsProxy,checkWithFetch,checkWindows,ATOM,API,REQUEST_DEADLINE_MS}=require('../windows-companion/update-check');
 if(process.argv.includes('--emit-fixture')) {
   process.stdout.write(JSON.stringify({status:'current',summary:'燕小北中文更新说明 — 等待确认'})+'\n');
   process.exit(0);
@@ -19,6 +19,8 @@ assert.equal(compare('0.2.3','0.2.3'),0);
 assert.equal(selectRelease([release('0.2.4'),release('0.2.10')],'0.2.3').latest,'0.2.10');
 assert.equal(selectRelease([release('0.2.3')],'0.2.3').status,'current');
 assert.equal(selectRelease([release('0.2.3')],'0.2.4').status,'ahead');
+assert.equal(releaseDownload('0.2.6','windows'),'https://github.com/YufeiWang-cn/bjut-yanxiaobei-codex-pet/releases/download/v0.2.6/bjut-yanxiaobei-windows.zip');
+assert.equal(selectRelease([release('0.2.6')],'0.2.5').downloads.windows,releaseDownload('0.2.6','windows'));
 assert.equal(selectRelease([],'0.2.4').status,'no-release');
 assert.equal(selectRelease([{...release('9.0.0'),draft:true},release('0.2.4')],'0.2.3').latest,'0.2.4');
 assert.equal(selectRelease([{...release('9.0.0'),assets:[]},release('0.2.4')],'0.2.3').latest,'0.2.4');

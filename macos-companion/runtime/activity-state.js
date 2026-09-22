@@ -121,6 +121,8 @@ function threadScope(metadata) {
   // child/ephemeral markers above still take precedence. For structured source
   // values, accept only known top-level producer keys.
   if (typeof metadata.source === 'string' && metadata.source.trim()) return 'root';
+  if (typeof metadata.sourceKind === 'string' && /^(?:cli|vscode|exec|appserver)$/i.test(metadata.sourceKind)) return 'root';
+  if (metadata.thread_source === 'user' || metadata.threadSource === 'user') return 'root';
   if (metadata.source && typeof metadata.source === 'object'
       && Object.keys(metadata.source).some(key => /^(?:cli|vscode|exec|appserver|desktop|codex|chatgpt|cloud)$/i.test(key))) {
     return 'root';
@@ -130,13 +132,19 @@ function threadScope(metadata) {
 
 class SessionActivityReader {
   constructor(root, ledger, io = fs, shouldWait = () => true) {
-    this.root = root; this.ledger = ledger; this.io = io;
+    this.roots = [...new Set((Array.isArray(root) ? root : [root]).filter(Boolean))];
+    this.root = this.roots[0] || null; this.ledger = ledger; this.io = io;
     this.shouldWait = shouldWait;
     this.files = new Map(); this.cursors = new Map(); this.scannedAt = 0;
     this.limit = 4 * 1024 * 1024;
     this.startedAt = Date.now();
     this.scopes = new Map(); this.metadataCache = new Map();
     this.recentCache = []; this.recentCacheAt = 0;
+  }
+  addRoot(root) {
+    if (!root || this.roots.includes(root)) return false;
+    this.roots.push(root); this.root = this.roots[0]; this.scannedAt = 0; this.recentCacheAt = 0;
+    return true;
   }
   classify(id, metadata) {
     const scope = threadScope(metadata);
@@ -162,7 +170,8 @@ class SessionActivityReader {
     if (newline < 0) return 'unknown';
     try {
       const record = JSON.parse(text.slice(0, newline));
-      if (record.type !== 'session_meta' || record.payload?.id !== id) return 'unknown';
+      const recordId = record.payload?.id || record.payload?.session_id;
+      if (record.type !== 'session_meta' || recordId !== id) return 'unknown';
       const scope = this.classify(id, record.payload);
       if (scope !== 'unknown') this.metadataCache.set(file, { ino: stat.ino, size: length, scope });
       return scope;
@@ -186,7 +195,7 @@ class SessionActivityReader {
         found.get(id).push(file);
       }
     };
-    visit(this.root);
+    for (const root of this.roots) visit(root);
     this.files = found;
   }
   recentIds(now = Date.now(), maxAgeMs = 12 * 60 * 60 * 1000, limit = 64) {

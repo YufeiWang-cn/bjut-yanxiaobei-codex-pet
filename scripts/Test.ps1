@@ -12,6 +12,7 @@ $cases = @(
     'tests\test-pet-watcher.ps1',
     'tests\test-package.ps1'
     'tests\test-update-check.ps1'
+    'tests\test-maintenance.ps1'
 )
 & $hostExecutable -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $repoRoot 'windows-companion\CodexQuotaPet.ps1') -SmokeTest
 if ($LASTEXITCODE -ne 0) { throw 'Smoke test failed' }
@@ -29,6 +30,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Activity lifecycle tests failed' }
 if ($LASTEXITCODE -ne 0) { throw 'Update checker tests failed' }
 & $NodeExecutable (Join-Path $repoRoot 'tests\test-task-scope.js')
 if ($LASTEXITCODE -ne 0) { throw 'Root task scope regression tests failed' }
+& $NodeExecutable (Join-Path $repoRoot 'tests\test-clean-profile.js')
+if ($LASTEXITCODE -ne 0) { throw 'Clean-profile activity test failed' }
 & $NodeExecutable (Join-Path $repoRoot 'scripts\Render-StartHere.cjs') --check
 if ($LASTEXITCODE -ne 0) { throw 'Offline installation guide is stale' }
 & $NodeExecutable --test (Join-Path $repoRoot 'macos-companion\tests\model.test.cjs') (Join-Path $repoRoot 'macos-companion\tests\source-quality.test.cjs')

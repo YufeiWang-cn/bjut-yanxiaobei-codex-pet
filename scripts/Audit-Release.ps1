@@ -29,6 +29,11 @@ foreach ($spec in $specs) {
         }
     }
     if ($spec.Template) { $expected['README.md'] = Join-Path $repo ('docs/releases/' + $spec.Template + '.md') }
+    if ($spec.Template -eq 'windows') {
+        $expected['Update.vbs'] = Join-Path $repo 'windows-companion\Update.vbs'
+        $expected['Uninstall.vbs'] = Join-Path $repo 'windows-companion\Uninstall.vbs'
+    }
+    if ($spec.Template -eq 'macos') { $expected['Uninstall.command'] = Join-Path $repo 'macos-companion\Uninstall.command' }
     $archive = Join-Path $release ($spec.Name + '.zip')
     $sha = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
     if (-not ($checksums -contains ($sha + '  ' + $spec.Name + '.zip'))) { throw "SHA256SUMS mismatch: $archive" }

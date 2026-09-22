@@ -33,7 +33,13 @@ test('Mac entrypoints use LF and the required Electron OS/runtime floor',()=>{
   assert.equal(pkg.engines.node,lock.packages[''].engines.node);
   assert.equal(pkg.build.extraResources[0].to,'runtime');assert.ok(pkg.build.files.includes('assets/**'));
   assert.ok(pkg.build.extraResources.some(item=>item.to==='START-HERE.html'));
-  assert.ok(fs.readFileSync(path.join(root,'main.cjs'),'utf8').includes("{label:'使用说明'"));
+  const main=fs.readFileSync(path.join(root,'main.cjs'),'utf8');
+  assert.ok(main.includes("{label:'使用说明'"));
+  assert.ok(!main.includes("{label:'卸载燕小北"));
+  const menuOrder=['刷新额度与状态','清除完成 / 错误提醒','使用说明','检查更新'].map(label=>main.indexOf(`{label:'${label}'`));
+  assert.ok(menuOrder.every(index=>index>=0)&&menuOrder.every((index,i)=>i===0||menuOrder[i-1]<index));
+  assert.ok(main.includes('if(demo||watching||quitting)return;'));
+  assert.doesNotMatch(main,/function toggleFollowCodex\(\)\s*\{[^}]*codexWasRunning=null/s);
 });
 test('renderer isolation, CSP and restricted navigation stay enabled',()=>{
   const main=fs.readFileSync(path.join(root,'main.cjs'),'utf8'),html=fs.readFileSync(path.join(root,'ui/index.html'),'utf8'),renderer=fs.readFileSync(path.join(root,'ui/renderer.js'),'utf8');

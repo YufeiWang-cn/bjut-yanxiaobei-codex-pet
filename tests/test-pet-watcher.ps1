@@ -19,4 +19,12 @@ $d=Get-PetLaunchDecision @(20) @(21) @(10,21)
 Assert $d.Start 'Fast GUI restart not detected'
 $d=Get-PetLaunchDecision @(20) @(20,21) @(20,21)
 Assert (!$d.Start) 'Second GUI window restarted pet'
-'PASS: 4 application identity and 7 watcher lifecycle cases (CLI ignored, GUI start, manual close respected, minimize, exit, quick restart, multiple windows)'
+$life=Get-PetCloseDecision 0 $true 2
+Assert (!$life.Close -and $life.MissingPolls -eq 0) 'Running Codex advanced close countdown'
+$life=Get-PetCloseDecision $life.MissingPolls $false 2
+Assert (!$life.Close -and $life.MissingPolls -eq 1) 'Pet closed on a single missing poll'
+$life=Get-PetCloseDecision $life.MissingPolls $false 2
+Assert $life.Close 'Pet did not close after Codex exited'
+$life=Get-PetCloseDecision $life.MissingPolls $true 2
+Assert (!$life.Close -and $life.MissingPolls -eq 0) 'Codex restart did not cancel close countdown'
+'PASS: application identity, watcher launch and pet-close lifecycle cases passed'

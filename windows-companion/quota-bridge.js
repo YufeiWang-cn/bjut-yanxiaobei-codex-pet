@@ -2,7 +2,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { ActivityLedger, SessionActivityReader } = require(path.join(__dirname, 'activity-state.js'));
-const { dataDirectory, macCodexCandidates, desktopLogDirectories } = require(path.join(__dirname, 'platform-paths.js'));
+const { dataDirectory, codexProfileRoots, macCodexCandidates, desktopLogDirectories } = require(path.join(__dirname, 'platform-paths.js'));
 
 let nextId = 10;
 let initialized = false;
@@ -33,6 +33,8 @@ const approvalThreads = new Map();
 // routes it to a reviewer agent. The desktop records the effective reviewer
 // for each turn before its session tool calls arrive.
 const reviewerByThread = new Map();
+const manualWaitingThreads = new Set();
+const runtimeStatusByThread = new Map();
 const observedThreads = new Set();
 const monitorStartedAt = Date.now();
 const threadMetadata = new Map();
@@ -42,9 +44,9 @@ const LOG_SCAN_BYTES = 4 * 1024 * 1024;
 const dataRoot = dataDirectory();
 const stateFile = path.join(dataRoot, 'bridge-state.json');
 const combinedState = { pet: null, quota: null, error: null, updatedAt: 0 };
-const profileRoot = process.env.CODEX_HOME || path.join(process.env.USERPROFILE || process.env.HOME || require('os').homedir(), '.codex');
-const sessionReader = new SessionActivityReader(path.join(profileRoot, 'sessions'), ledger, fs,
-  (id, event) => event.promptType === 'input' || reviewerByThread.get(id) !== 'auto_review');
+const profileRoots = codexProfileRoots();
+const sessionReader = new SessionActivityReader(profileRoots.map(root => path.join(root, 'sessions')), ledger, fs,
+  (id, event) => event.promptType === 'input' || manualWaitingThreads.has(id) || reviewerByThread.get(id) === 'user');
 let sessionSourceAvailable = false;
 let lastHeartbeatAt = 0;
 
@@ -115,6 +117,7 @@ function readThreads() {
   request('thread/list', {
     limit: 100,
     archived: false,
+    sourceKinds: ['cli', 'vscode'],
     sortKey: 'updated_at',
     sortDirection: 'desc',
   }, 'threads');
@@ -201,7 +204,11 @@ function rememberThreads(result) {
   if (!result || !Array.isArray(result.data)) return;
   for (const thread of result.data) {
     if (!thread || !thread.id) continue;
-    const scope = sessionReader.classify(thread.id, thread);
+    let scope = sessionReader.classify(thread.id, thread);
+    // thread/list defaults to interactive cli/vscode sources. Some Codex
+    // versions omit the source field from the returned summary, so trust the
+    // filtered app-server result after the explicit child/ephemeral checks.
+    if (scope === 'unknown') scope = sessionReader.classify(thread.id, {...thread, source:'appServer'});
     // macOS desktop log paths vary by client. Recent local root sessions provide
     // lifecycle-only fallback; sub-agent sessions are not separate tray tasks.
     if (process.platform === 'darwin' && Number.isFinite(thread.updatedAt)
@@ -216,14 +223,14 @@ function rememberThreads(result) {
       updatedAt: Number.isFinite(thread.updatedAt) ? thread.updatedAt * 1000 : 0,
       kind: 'codex',
     });
+    applyRuntimeStatus(thread.id, thread.status, Date.now());
   }
 }
 function readSessionIndexTitles() {
-  const profile = process.env.USERPROFILE || process.env.HOME;
-  if (!profile) return;
-  const indexPath = path.join(process.env.CODEX_HOME || path.join(profile, '.codex'), 'session_index.jsonl');
-  try {
-    const lines = fs.readFileSync(indexPath, 'utf8').split(/\r?\n/);
+  for (const root of profileRoots) {
+    const indexPath = path.join(root, 'session_index.jsonl');
+    try {
+      const lines = fs.readFileSync(indexPath, 'utf8').split(/\r?\n/);
     for (const line of lines) {
       if (!line.trim()) continue;
       try {
@@ -235,8 +242,33 @@ function readSessionIndexTitles() {
           threadMetadata.set(entry.id, { title: cleanTitle(entry.thread_name), updatedAt, kind: previous?.kind || 'codex' });
         }
       } catch {}
+      }
+    } catch {}
+  }
+}
+
+function applyRuntimeStatus(threadId, status, timestamp = Date.now()) {
+  if (!threadId || !status || sessionReader.scopes.get(threadId) === 'excluded') return;
+  const type = String(status.type || status).toLowerCase();
+  const flags = Array.isArray(status.activeFlags) ? status.activeFlags.map(String) : [];
+  const waiting = flags.some(flag => /waitingOnApproval|waitingOnUserInput/i.test(flag));
+  const previous = runtimeStatusByThread.get(threadId);
+  runtimeStatusByThread.set(threadId, type + ':' + flags.sort().join(','));
+  if (type === 'active') {
+    observedThreads.add(threadId);
+    if (!sessionReader.isRoot(threadId)) sessionReader.classify(threadId, {source:'appServer'});
+    if (waiting) { manualWaitingThreads.add(threadId); ledger.wait(threadId, timestamp, 'app-server-status'); }
+    else {
+      manualWaitingThreads.delete(threadId);
+      const item = ledger.latest.get(threadId);
+      if (item && !item.terminal) ledger.progress(threadId, timestamp, item.state === 'waiting', 'app-server-status');
+      else markActive(threadId, timestamp);
     }
-  } catch {}
+  } else {
+    manualWaitingThreads.delete(threadId);
+    if (type === 'systemerror') markFailed(threadId, timestamp);
+    else if (previous?.startsWith('active:')) markReady(threadId, timestamp);
+  }
 }
 
 function processLogLine(line) {
@@ -442,10 +474,10 @@ function emitPetState() {
   else if (active > 0) { petState = 'running'; label = '思考中'; }
 
   const payload = {
-    type: 'pet-state', bridgeVersion: '0.2.5', petState, label,
+    type: 'pet-state', bridgeVersion: '0.2.6', petState, label,
     counts: { total: tasks.length, active: active + waiting, running: active, waiting, ready, failed },
     tasks,
-    source: sessionSourceAvailable ? 'session-events+desktop-log' : currentLogPath ? 'desktop-log' : 'unavailable',
+    source: runtimeStatusByThread.size ? 'app-server-status+session-events' : sessionSourceAvailable ? 'session-events+desktop-log' : currentLogPath ? 'desktop-log' : 'unavailable',
     fetchedAt: Math.floor(Date.now() / 1000),
   };
   const semantic = JSON.stringify({ petState, label, counts: payload.counts, tasks, source: payload.source });
@@ -474,6 +506,11 @@ function pollDesktopActivity() {
 function handleMessage(message) {
   if (message.id === 1 && message.result) {
     initialized = true;
+    if (message.result.codexHome) {
+      const root = path.resolve(message.result.codexHome);
+      if (!profileRoots.includes(root)) profileRoots.push(root);
+      sessionReader.addRoot(path.join(root, 'sessions'));
+    }
     send({ method: 'initialized' });
     readRateLimits();
     readThreads();
@@ -513,6 +550,13 @@ function handleMessage(message) {
     else readRateLimits();
   }
   if (message.method === 'thread/name/updated' || message.method === 'thread/started') readThreads();
+  if (message.method === 'thread/status/changed') {
+    const threadId = message.params?.threadId;
+    if (threadId && (threadMetadata.has(threadId) || sessionReader.isRoot(threadId))) {
+      applyRuntimeStatus(threadId, message.params.status, Date.now());
+      emitPetState();
+    } else readThreads();
+  }
 }
 
 function startAppServer() {
@@ -540,7 +584,7 @@ function startAppServer() {
   send({
     id: 1, method: 'initialize',
     params: {
-      clientInfo: { name: 'bjut-yanxiaobei-codex-pet', title: 'BJUT YanXiaoBei Codex Pet', version: '0.2.5' },
+      clientInfo: { name: 'bjut-yanxiaobei-codex-pet', title: 'BJUT YanXiaoBei Codex Pet', version: '0.2.6' },
       capabilities: { experimentalApi: true, requestAttestation: false, optOutNotificationMethods: [] },
     },
   });

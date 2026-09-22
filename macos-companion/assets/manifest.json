@@ -1,8 +1,8 @@
 {
-  "runtime/quota-bridge.js": "5b1c356d3fd38d73cc014e9a2ef5b2bc6603057de4c8f8775e7f866243269052",
-  "runtime/activity-state.js": "337903ac866a24bbb98a3ac0b28517c4f1f2ec8dba810c8bc3973b7a660186c6",
-  "runtime/platform-paths.js": "251f7c973ebf1bb7259186a26bb7a08c9b4b68b50b26b1bf2cf3173fcf0bd497",
-  "runtime/update-check.js": "dadc15f9006a2f9e7629d248d80a56330aeac63c2548e2a2c5a49389fef260d7",
+  "runtime/quota-bridge.js": "54796edf2df87e2d26cacdc7a93ee295c11cb516242ba3311e9a49d01074d944",
+  "runtime/activity-state.js": "93686b593799accfec82d998759c49c2cfeb1780f4fca6f6295c79e98c9c8e8a",
+  "runtime/platform-paths.js": "6857ecec4daa6298f06cab11250f32fb74a1c9753e1dc237a2b93e6acce8e5ea",
+  "runtime/update-check.js": "27a4d7618335be90a994975ff5c37f13c9b22572d2ab1eb7b6aea7868fa112cf",
   "assets/animation-timing.json": "b26f5e27d1f6ae39dff57454504378c97f5bad9aa0198f797affe21ec11bb505",
   "assets/LICENSE.md": "3f037c08e1af2dc58c2ac7e12b473795b6259249d8bb248f29c12b86347a41e6",
   "assets/frames/idle/00.png": "4a465a968ade5c7fc7ba2265b67470a4a22594a8046164a6bbc5b03dd24ee35f",

@@ -550,6 +550,22 @@ $countdownTimer.Interval = [TimeSpan]::FromSeconds(30)
 $countdownTimer.add_Tick({ Update-Countdowns })
 $countdownTimer.Start()
 
+# A companion launched by the watcher belongs to the current Codex desktop
+# lifetime. Give package updates/restarts a short grace period, then exit when
+# every real Codex GUI process is gone.
+$script:codexMissingPolls = 0
+$codexLifecycleTimer = [Windows.Threading.DispatcherTimer]::new()
+$codexLifecycleTimer.Interval = [TimeSpan]::FromMilliseconds(500)
+$codexLifecycleTimer.add_Tick({
+    try {
+        $running = @(Get-CodexDesktopProcesses -IncludeHidden).Count -gt 0
+        $decision = Get-PetCloseDecision $script:codexMissingPolls $running 2
+        $script:codexMissingPolls = $decision.MissingPolls
+        if ($decision.Close) { $window.Close() }
+    } catch {}
+})
+$codexLifecycleTimer.Start()
+
 function Send-BridgeCommand([string]$command) {
     if (-not $bridge.HasExited) {
         $bridge.StandardInput.WriteLine($command)
@@ -588,8 +604,20 @@ function Open-UsageGuide {
 $updatePreferencePath = Join-Path $dataRoot 'update-preferences.json'
 $script:updateProcess = $null
 $script:updateManual = $false
+$script:autoUpdateAttempts = 0
 $updateTimer = [Windows.Threading.DispatcherTimer]::new()
 $updateTimer.Interval = [TimeSpan]::FromMilliseconds(250)
+$autoUpdateTimer = [Windows.Threading.DispatcherTimer]::new()
+function Schedule-AutoUpdateCheck([int]$milliseconds) {
+    $autoUpdateTimer.Stop()
+    $autoUpdateTimer.Interval = [TimeSpan]::FromMilliseconds($milliseconds)
+    $autoUpdateTimer.Start()
+}
+$autoUpdateTimer.add_Tick({
+    $autoUpdateTimer.Stop()
+    $script:autoUpdateAttempts += 1
+    Start-UpdateCheck $false
+})
 function Open-ReleasePage([string]$url) {
     if ($url -notmatch '^https://github\.com/YufeiWang-cn/bjut-yanxiaobei-codex-pet/releases(?:/tag/v\d+\.\d+\.\d+)?$') {
         throw 'Unexpected release URL'
@@ -597,6 +625,23 @@ function Open-ReleasePage([string]$url) {
     $browser = [Diagnostics.ProcessStartInfo]::new($url)
     $browser.UseShellExecute = $true
     $null = [Diagnostics.Process]::Start($browser)
+}
+function Start-UpdateProgram($result) {
+    $version = [string]$result.latest
+    $url = [string]$result.downloads.windows
+    if ($version -notmatch '^\d+\.\d+\.\d+$' -or
+        $url -ne "https://github.com/YufeiWang-cn/bjut-yanxiaobei-codex-pet/releases/download/v$version/bjut-yanxiaobei-windows.zip") {
+        throw '更新包地址无效，请使用 GitHub 发布页手动下载。'
+    }
+    $launcher = Join-Path $appRoot 'Update.vbs'
+    if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) { throw '更新程序缺失，请重新下载完整 Windows 压缩包。' }
+    $info = [Diagnostics.ProcessStartInfo]::new()
+    $info.FileName = Join-Path $env:SystemRoot 'System32\wscript.exe'
+    $info.Arguments = '"' + $launcher + '" "' + $version + '" "' + $url + '" "' + $PID + '"'
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $started = [Diagnostics.Process]::Start($info); $started.Dispose()
+    $window.Close()
 }
 function New-ReleaseUpdateDialog($result) {
     $dialog = [Windows.Window]::new()
@@ -638,7 +683,7 @@ function New-ReleaseUpdateDialog($result) {
     $buttons.HorizontalAlignment = [Windows.HorizontalAlignment]::Right
     $buttons.Margin = [Windows.Thickness]::new(0, 12, 0, 0)
     foreach ($spec in @(
-        @{ Text = '前往更新'; Value = 'open' },
+        @{ Text = '立即更新'; Value = 'install' },
         @{ Text = '忽略此版本'; Value = 'ignore' },
         @{ Text = '暂时忽略'; Value = 'later' }
     )) {
@@ -682,6 +727,7 @@ function Start-UpdateCheck([bool]$manual) {
         $updateTimer.Start()
     } catch {
         if ($manual) { $null = [Windows.MessageBox]::Show($_.Exception.Message, '检查更新失败') }
+        elseif ($script:autoUpdateAttempts -lt 2) { Schedule-AutoUpdateCheck 8000 }
     }
 }
 $updateTimer.add_Tick({
@@ -697,6 +743,7 @@ $updateTimer.add_Tick({
                 $choice = [Windows.MessageBox]::Show("$($result.message)`n`n是否打开 GitHub 发布页手动查看？", '检查更新失败', [Windows.MessageBoxButton]::YesNo, [Windows.MessageBoxImage]::Warning)
                 if ($choice -eq [Windows.MessageBoxResult]::Yes) { Open-ReleasePage 'https://github.com/YufeiWang-cn/bjut-yanxiaobei-codex-pet/releases' }
             }
+            if (-not $script:updateManual -and $script:autoUpdateAttempts -lt 2) { Schedule-AutoUpdateCheck 8000 }
             return
         }
         if ($script:updateManual) { $statusText.Text = '检查更新完成' }
@@ -712,11 +759,14 @@ $updateTimer.add_Tick({
         try { $ignored = (Get-Content -Raw -Encoding UTF8 -LiteralPath $updatePreferencePath | ConvertFrom-Json).ignoredVersion } catch {}
         if (-not $script:updateManual -and $ignored -eq $result.latest) { return }
         $choice = Show-ReleaseUpdateDialog $result
-        if ($choice -eq 'open') { Open-ReleasePage $result.link }
+        if ($choice -eq 'install') { Start-UpdateProgram $result }
         elseif ($choice -eq 'ignore') {
             [IO.File]::WriteAllText($updatePreferencePath, ('{"ignoredVersion":"' + $result.latest + '"}'), [Text.UTF8Encoding]::new($false))
         }
-    } catch { if ($script:updateManual) { $null = [Windows.MessageBox]::Show($_.Exception.Message, '检查更新失败') } }
+    } catch {
+        if ($script:updateManual) { $null = [Windows.MessageBox]::Show($_.Exception.Message, '检查更新失败') }
+        elseif ($script:autoUpdateAttempts -lt 2) { Schedule-AutoUpdateCheck 8000 }
+    }
     finally { $script:updateManual = $false; $process.Dispose() }
 })
 
@@ -745,7 +795,7 @@ function Initialize-PetMenu {
     $clearItem.add_Click({ Send-BridgeCommand 'clear-ready' })
     $exitItem = [Windows.Controls.MenuItem]::new(); $exitItem.Header = '关闭桌宠'
     $exitItem.add_Click({ $window.Close() })
-    foreach ($item in @($openItem, $script:quotaMenuItem, $script:taskMenuItem, $script:followMenuItem, [Windows.Controls.Separator]::new(), $refreshItem, $updateItem, $helpItem, $clearItem, [Windows.Controls.Separator]::new(), $exitItem)) {
+    foreach ($item in @($openItem, $script:quotaMenuItem, $script:taskMenuItem, $script:followMenuItem, [Windows.Controls.Separator]::new(), $refreshItem, $clearItem, $helpItem, $updateItem, [Windows.Controls.Separator]::new(), $exitItem)) {
         $null = $menu.Items.Add($item)
     }
     $menu.add_Opened({
@@ -832,7 +882,7 @@ $window.add_Loaded({
     } catch {}
     if ($ExpandedTest) { Set-QuotaVisible $true; Set-TaskTrayExpanded $true }
     Set-WindowPositionClamped $window.Left $window.Top $false
-    Start-UpdateCheck $false
+    Schedule-AutoUpdateCheck 1500
 })
 
 $window.add_Closed({
@@ -840,8 +890,10 @@ $window.add_Closed({
     Save-UiSettings
     $uiTimer.Stop()
     $updateTimer.Stop()
+    $autoUpdateTimer.Stop()
     if ($null -ne $script:updateProcess) { try { if (-not $script:updateProcess.HasExited) { $script:updateProcess.Kill() } } catch {}; $script:updateProcess.Dispose() }
     $countdownTimer.Stop()
+    $codexLifecycleTimer.Stop()
     $animationTimer.Stop()
     if (-not $bridge.HasExited) {
         try { $bridge.StandardInput.Close() } catch {}
