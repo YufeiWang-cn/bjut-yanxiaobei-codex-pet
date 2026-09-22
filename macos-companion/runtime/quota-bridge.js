@@ -117,7 +117,6 @@ function readThreads() {
     archived: false,
     sortKey: 'updated_at',
     sortDirection: 'desc',
-    useStateDbOnly: true,
   }, 'threads');
 }
 
@@ -215,6 +214,7 @@ function rememberThreads(result) {
     threadMetadata.set(thread.id, {
       title: title || ('任务 ' + String(thread.id).slice(-6)),
       updatedAt: Number.isFinite(thread.updatedAt) ? thread.updatedAt * 1000 : 0,
+      kind: 'codex',
     });
   }
 }
@@ -232,7 +232,7 @@ function readSessionIndexTitles() {
         const updatedAt = Date.parse(entry.updated_at || '') || 0;
         const previous = threadMetadata.get(entry.id);
         if (!previous || updatedAt >= previous.updatedAt) {
-          threadMetadata.set(entry.id, { title: cleanTitle(entry.thread_name), updatedAt });
+          threadMetadata.set(entry.id, { title: cleanTitle(entry.thread_name), updatedAt, kind: previous?.kind || 'codex' });
         }
       } catch {}
     }
@@ -277,6 +277,19 @@ function processLogLine(line) {
     observedThreads.add(threadId);
   }
 
+  // This desktop event is emitted for a real Codex turn. Trust it immediately
+  // so activity still works when a client build delays thread/list or stores
+  // sessions in a location the companion cannot scan. Later child metadata can
+  // still revoke the provisional root classification.
+  if (threadId && line.includes('Reasoning summary turn-start config resolved')
+      && sessionReader.scopes.get(threadId) !== 'excluded') {
+    sessionReader.classify(threadId, { source: 'desktop' });
+    const existing = threadMetadata.get(threadId);
+    if (!existing) threadMetadata.set(threadId, {
+      title: 'Codex 任务 ' + String(threadId).slice(-6), updatedAt: timestamp, kind: 'codex',
+    });
+  }
+
   if (sessionReader.scopes.get(threadId) === 'excluded') return;
   if (isStart) ledger.start(threadId, timestamp, turnId);
   else if (isStopped) { ledger.finish(threadId, 'stopped', timestamp, turnId); forgetApprovals(threadId); }
@@ -307,19 +320,23 @@ function logDirectories() {
   return desktopLogDirectories();
 }
 function latestDesktopLog() {
-  const candidates = [];
+  const preferred = [];
+  const fallback = [];
   for (const directory of logDirectories()) {
     try {
       for (const name of fs.readdirSync(directory)) {
-        if (!/^(?:codex-desktop-.*-t0-.*|main)\.log$/i.test(name)) continue;
+        if (!/^(?:codex-desktop-.*|main)\.log$/i.test(name)) continue;
         const filePath = path.join(directory, name);
         const stat = fs.statSync(filePath);
-        candidates.push({ filePath, mtime: stat.mtimeMs });
+        const candidate = { filePath, mtime: stat.mtimeMs };
+        if (/^(?:codex-desktop-.*-t0-.*|main)\.log$/i.test(name)) preferred.push(candidate);
+        else fallback.push(candidate);
       }
     } catch {}
   }
-  candidates.sort((a, b) => b.mtime - a.mtime);
-  return candidates.length ? candidates[0].filePath : null;
+  preferred.sort((a, b) => b.mtime - a.mtime);
+  fallback.sort((a, b) => b.mtime - a.mtime);
+  return preferred[0]?.filePath || fallback[0]?.filePath || null;
 }
 function parseText(text, discardFirstPartial) {
   let content = text;
@@ -408,6 +425,8 @@ function emitPetState() {
       title: metadata ? metadata.title : ('任务 ' + String(threadId).slice(-6)),
       state: visibleState(item),
       label: stateLabels[visibleState(item)] || '进行中',
+      kind: 'codex',
+      kindLabel: 'Codex',
       updatedAt: Math.floor(item.lastEventAt / 1000),
     };
   }).sort((a, b) => {
@@ -423,7 +442,7 @@ function emitPetState() {
   else if (active > 0) { petState = 'running'; label = '思考中'; }
 
   const payload = {
-    type: 'pet-state', bridgeVersion: '0.2.4', petState, label,
+    type: 'pet-state', bridgeVersion: '0.2.5', petState, label,
     counts: { total: tasks.length, active: active + waiting, running: active, waiting, ready, failed },
     tasks,
     source: sessionSourceAvailable ? 'session-events+desktop-log' : currentLogPath ? 'desktop-log' : 'unavailable',
@@ -443,7 +462,9 @@ function pollDesktopActivity() {
       if (filePath !== currentLogPath) loadLog(filePath);
       else readLogAppend(filePath);
     }
-    sessionSourceAvailable = sessionReader.poll(new Set([...observedThreads, ...ledger.latest.keys()])) > 0;
+    const sessionIds = new Set([...observedThreads, ...ledger.latest.keys(),
+      ...sessionReader.recentIds(Date.now(), ACTIVE_STALE_MS)]);
+    sessionSourceAvailable = sessionReader.poll(sessionIds) > 0;
     emitPetState();
   } catch (error) {
     persist({ type: 'error', scope: 'activity', message: '无法读取 Codex 活动记录: ' + error.message });
@@ -519,7 +540,7 @@ function startAppServer() {
   send({
     id: 1, method: 'initialize',
     params: {
-      clientInfo: { name: 'bjut-yanxiaobei-codex-pet', title: 'BJUT YanXiaoBei Codex Pet', version: '0.2.4' },
+      clientInfo: { name: 'bjut-yanxiaobei-codex-pet', title: 'BJUT YanXiaoBei Codex Pet', version: '0.2.5' },
       capabilities: { experimentalApi: true, requestAttestation: false, optOutNotificationMethods: [] },
     },
   });

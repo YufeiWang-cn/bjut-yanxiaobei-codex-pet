@@ -115,11 +115,17 @@ function threadScope(metadata) {
   if (!metadata || typeof metadata !== 'object') return 'unknown';
   const source = JSON.stringify(metadata.source || '').toLowerCase();
   if (metadata.ephemeral === true || metadata.parent_thread_id || metadata.parentThreadId
-      || /sub.?agent|ephemeral|internal|guardian/.test(source)) return 'excluded';
-  // A title or presence in session_index is not proof of a user-facing task.
-  // Unknown/new source formats fail closed until independently identified.
-  return typeof metadata.source === 'string'
-    && /^(cli|vscode|exec|appserver|desktop)$/i.test(metadata.source) ? 'root' : 'unknown';
+      || /sub.?agent|ephemeral|internal|guardian|title.?gen|suggestion|review|compact/.test(source)) return 'excluded';
+  // Source names have changed between Codex Desktop/CLI releases. A persisted
+  // session with a non-empty, non-internal string source is a top-level thread;
+  // child/ephemeral markers above still take precedence. For structured source
+  // values, accept only known top-level producer keys.
+  if (typeof metadata.source === 'string' && metadata.source.trim()) return 'root';
+  if (metadata.source && typeof metadata.source === 'object'
+      && Object.keys(metadata.source).some(key => /^(?:cli|vscode|exec|appserver|desktop|codex|chatgpt|cloud)$/i.test(key))) {
+    return 'root';
+  }
+  return 'unknown';
 }
 
 class SessionActivityReader {
@@ -130,6 +136,7 @@ class SessionActivityReader {
     this.limit = 4 * 1024 * 1024;
     this.startedAt = Date.now();
     this.scopes = new Map(); this.metadataCache = new Map();
+    this.recentCache = []; this.recentCacheAt = 0;
   }
   classify(id, metadata) {
     const scope = threadScope(metadata);
@@ -181,6 +188,22 @@ class SessionActivityReader {
     };
     visit(this.root);
     this.files = found;
+  }
+  recentIds(now = Date.now(), maxAgeMs = 12 * 60 * 60 * 1000, limit = 64) {
+    this.discover(now);
+    if (this.recentCacheAt && now - this.recentCacheAt < 20000) return this.recentCache.slice(0, limit);
+    const recent = [];
+    for (const [id, files] of this.files) {
+      let mtime = 0;
+      for (const file of files) {
+        try { mtime = Math.max(mtime, this.io.statSync(file).mtimeMs); } catch {}
+      }
+      if (mtime && now - mtime <= maxAgeMs) recent.push({ id, mtime });
+    }
+    recent.sort((a, b) => b.mtime - a.mtime);
+    this.recentCache = recent.map(item => item.id);
+    this.recentCacheAt = now;
+    return this.recentCache.slice(0, limit);
   }
   read(file, id) {
     const stat = this.io.statSync(file);

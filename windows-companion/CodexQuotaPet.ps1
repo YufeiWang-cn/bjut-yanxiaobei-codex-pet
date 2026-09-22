@@ -294,7 +294,7 @@ function Get-TaskVisual([string]$state) {
 }
 function Update-TaskList($tasks) {
     $items = @($tasks | Where-Object { $null -ne $_ })
-    $listKey = ConvertTo-Json -InputObject @($items | Select-Object id,title,state,label) -Compress
+    $listKey = ConvertTo-Json -InputObject @($items | Select-Object id,title,state,label,kindLabel) -Compress
     if ($listKey -eq $script:lastTaskListKey) { return }
     $script:lastTaskListKey = $listKey
     $taskListPanel.Children.Clear()
@@ -307,8 +307,9 @@ function Update-TaskList($tasks) {
         $row.Style = $window.FindResource('TaskButton')
         $row.Margin = [Windows.Thickness]::new(0, 0, 0, 4)
         $row.Tag = [string]$task.id
-        $row.ToolTip = [string]$task.title + "`n点击在 Codex 中打开此任务"
-        [Windows.Automation.AutomationProperties]::SetName($row, ([string]$task.title + '，' + [string]$task.label))
+        $kindLabel = if ([string]$task.kindLabel) { [string]$task.kindLabel } else { 'Codex' }
+        $row.ToolTip = $kindLabel + ' · ' + [string]$task.title + "`n点击在 Codex 中打开此任务"
+        [Windows.Automation.AutomationProperties]::SetName($row, ($kindLabel + '，' + [string]$task.title + '，' + [string]$task.label))
         $row.add_Click({ param($sender, $eventArgs) Open-Codex ([string]$sender.Tag); $eventArgs.Handled = $true })
 
         $grid = [Windows.Controls.Grid]::new()
@@ -330,7 +331,7 @@ function Update-TaskList($tasks) {
         $null = $grid.Children.Add($dot)
 
         $title = [Windows.Controls.TextBlock]::new()
-        $title.Text = [string]$task.title
+        $title.Text = $kindLabel + ' · ' + [string]$task.title
         $title.FontFamily = [Windows.Media.FontFamily]::new('Microsoft YaHei UI')
         $title.FontSize = 10
         $title.Foreground = Brush '#FFF0F3F8'

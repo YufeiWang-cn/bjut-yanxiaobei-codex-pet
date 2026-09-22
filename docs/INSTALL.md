@@ -73,6 +73,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Install-CodexPet.p
 3. 进入 `windows-companion`，双击 `Start.vbs`。它以隐藏方式启动 PowerShell，不应留下终端窗口。
 4. 若连接失败，查看提示；用 `Start-Debug.cmd` 启动会保留调试窗口，便于阅读错误。**只有调试入口会故意留下终端。**
 
+任务活动面板会在每一行显示 `Codex`，只表示本机 Codex 任务；普通 ChatGPT 聊天不读取、不展示。没有 Codex 活动时显示空闲。0.2.5 起，即使常用桌面日志缺失，也会从最近本机会话中寻找正在运行的顶层 Codex 任务。
+
 若设备禁用了 Windows Script Host / VBScript，可在你自己打开的 PowerShell 中运行（终端关闭会影响这种手动启动方式）：
 
 ```powershell

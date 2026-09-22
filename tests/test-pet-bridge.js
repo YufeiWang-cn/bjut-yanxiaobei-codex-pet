@@ -4,6 +4,7 @@ const vm = require('vm');
 const assert = require('assert/strict');
 const appRoot = path.join(__dirname, '..', 'windows-companion');
 const source = fs.readFileSync(path.join(appRoot, 'quota-bridge.js'), 'utf8');
+assert.doesNotMatch(source,/useStateDbOnly\s*:\s*true/,'Thread discovery must allow app-server to repair metadata from session logs');
 const scheduled=[];
 const context = vm.createContext({
   require: name => name === 'fs' ? {mkdirSync() {}, writeFileSync() {}} : require(name),
@@ -40,6 +41,27 @@ assert.equal(evaluate('combinedState.pet.petState'), 'running');
 evaluate("activity.delete('active'); markReady('old',Date.now()-READY_TTL_MS-100); emitPetState()");
 assert.equal(evaluate('combinedState.pet.petState'), 'idle');
 assert.equal(evaluate('combinedState.pet.tasks.length'), 0);
+const chat='00000000-0000-4000-8000-000000000090';
+evaluate(`
+  processLogLine(new Date(Date.now()+10).toISOString()+' info [electron-message-handler] chatgpt_conversation_refetch_completed conversationId=${chat} statusBefore=idle statusAfter=streaming');
+  emitPetState();
+`);
+pet=JSON.parse(evaluate('JSON.stringify(combinedState.pet)'));
+assert.equal(pet.petState,'idle','Ordinary ChatGPT log activity must not change the pet state');
+assert.equal(pet.tasks.length,0,'Ordinary ChatGPT activity must not appear in the Codex task list');
+const codexConversation='00000000-0000-4000-8000-000000000091';
+evaluate(`
+  sessionReader.classify('${codexConversation}',{source:'vscode'});
+  rememberThreads({data:[{id:'${codexConversation}',name:'Codex 对话',source:'chatgpt',updatedAt:Date.now()/1000}]});
+  markActive('${codexConversation}',Date.now());
+  processLogLine(new Date().toISOString()+' info chatgpt_conversation_refetch_completed conversationId=${codexConversation} statusBefore=idle statusAfter=streaming');
+  emitPetState();
+`);
+pet=JSON.parse(evaluate('JSON.stringify(combinedState.pet)'));
+assert.equal(pet.tasks.length,1,'A Codex conversation must not create a second Chat activity');
+assert.equal(pet.tasks[0].kind,'codex','App-server membership must win over chatgpt transport event names');
+assert.equal(pet.tasks[0].kindLabel,'Codex');
+evaluate(`activity.delete('${codexConversation}');emitPetState()`);
 const quota=JSON.parse(evaluate(`JSON.stringify(normalizeQuota({rateLimits:{primary:{usedPercent:23}},rateLimitResetCredits:{availableCount:2,credits:[]}}))`));
 assert.equal(quota.primary.usedPercent,23);
 assert.equal(quota.resetCredits.availableCount,2);
@@ -72,4 +94,4 @@ evaluate(`
   markReady('quota-task',eventTime+1000);emitPetState();
 `);
 assert.ok(scheduled.length>1,'A completed task should schedule a prompt quota refresh');
-console.log('PASS: task counts, names, four-state priority, completion expiry, quota and reset count');
+console.log('PASS: Codex-only activity, source labels, names, four-state priority, completion expiry, quota and reset count');

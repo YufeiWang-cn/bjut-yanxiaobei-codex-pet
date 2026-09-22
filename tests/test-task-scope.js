@@ -22,15 +22,17 @@ function log(run, message, at = Date.now()) { run(`processLogLine(${JSON.stringi
 function trust(run, id = root) { run(`rememberThreads({data:[{id:'${id}',source:'vscode',updatedAt:Date.now()/1000}]})`); }
 
 test('provenance rejects child/guardian/review/compact/internal/ephemeral sessions', () => {
-  for (const source of [{subagent:{thread_spawn:{parent_thread_id:root}}},{subagent:{other:'guardian'}},'subAgentReview','subAgentCompact','ephemeral','internal']) {
+  for (const source of [{subagent:{thread_spawn:{parent_thread_id:root}}},{subagent:{other:'guardian'}},'subAgentReview','subAgentCompact','ephemeral','internal','titleGeneration','ambientSuggestion']) {
     assert.equal(threadScope({source}), 'excluded');
   }
   assert.equal(threadScope({source:'vscode',parent_thread_id:root}), 'excluded');
   assert.equal(threadScope({source:'vscode',parentThreadId:root}), 'excluded');
   assert.equal(threadScope({source:'vscode',ephemeral:true}), 'excluded');
   assert.equal(threadScope({name:'Looks like a real task'}), 'unknown');
-  assert.equal(threadScope({source:'new-unknown-format'}), 'unknown');
-  for (const source of ['cli','vscode','exec','appServer']) assert.equal(threadScope({source}), 'root');
+  assert.equal(threadScope({source:'new-unknown-format'}), 'root');
+  assert.equal(threadScope({source:{desktop:{channel:'beta'}},originator:'Codex Desktop'}), 'root');
+  assert.equal(threadScope({source:{unknown:true}}), 'unknown');
+  for (const source of ['cli','vscode','exec','appServer','codex-desktop-v2']) assert.equal(threadScope({source}), 'root');
 });
 test('rename/title and background suggestion unknown-conversation events are invisible', () => {
   const run = bridge();
@@ -135,6 +137,14 @@ try {
     const at=Date.now()+10;ledger.start(root,at,turn);
     fs.writeFileSync(fileFor(root),header(root)+event('task_started',at)+event('task_complete',at+1));
     reader.poll([root]);assert.equal(activity.get(root).state,'ready');
+  });
+  test('recent session discovery finds running roots without desktop logs', () => {
+    const recent='00000000-0000-4000-8000-000000000009';
+    fs.writeFileSync(fileFor(recent),header(recent,{source:'codex-desktop-v2'})+event('task_started',Date.now(),turn));
+    const activity=new Map(),ledger=new ActivityLedger(activity),reader=new SessionActivityReader(temp,ledger);
+    const ids=reader.recentIds(Date.now(),60_000);
+    assert.ok(ids.includes(recent));reader.poll(new Set(ids));
+    assert.equal(reader.isRoot(recent),true);assert.equal(activity.get(recent).state,'active');
   });
   test('partial or mismatched session metadata is never accepted as a root', () => {
     for(const prefix of ['{"type":"session_meta"',header(child),JSON.stringify({type:'session_meta',payload:{id:root}})+'\n']){

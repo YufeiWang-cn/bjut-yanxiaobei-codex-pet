@@ -18,11 +18,11 @@ function quota(){const q=lastPacket?.quota;for(const [name,key] of [['five','pri
  const age=q?Math.max(0,Math.floor((Date.now()/1000-q.fetchedAt)/60)):null;
  $('quota-status').textContent=lastPacket?.error?.message || (q?`${lastPacket.demo?'演示':String(q.planType||'额度').toUpperCase()} · ${age<1?'刚刚更新':age+'分钟前'}`:'等待额度数据');
  $('quota-status').title=lastPacket?.error?.message||'仅显示订阅额度，不会兑换重置';}
-function renderTasks(tasks,known){const key=JSON.stringify([known,tasks.map(t=>[t.id,t.title,t.state,t.label])]);if(key===taskKey)return;taskKey=key;
+function renderTasks(tasks,known){const key=JSON.stringify([known,tasks.map(t=>[t.id,t.title,t.state,t.label,t.kindLabel])]);if(key===taskKey)return;taskKey=key;
  const list=$('task-list');const scroll=list.scrollTop;list.replaceChildren();
  for(const task of tasks){const row=document.createElement('button');row.className='task';row.dataset.state=task.state;row.title=task.title+' · '+task.label;
   const dot=document.createElement('span');dot.className='indicator';const copy=document.createElement('span');copy.className='copy';
-  const title=document.createElement('strong');title.textContent=task.title;const label=document.createElement('small');label.textContent=task.label;
+  const kind=task.kindLabel||'Codex';const title=document.createElement('strong');title.textContent=task.title;const label=document.createElement('small');label.textContent=kind+' · '+task.label;
   const arrow=document.createElement('span');arrow.className='chevron';arrow.textContent='›';copy.append(title,label);row.append(dot,copy,arrow);
   row.addEventListener('click',()=>window.pet.openTask(task.id));list.append(row);
  }list.scrollTop=scroll;$('empty').hidden=tasks.length>0;$('empty').textContent=known?'暂时没有活动任务':'状态暂不可用，连接后更新';}

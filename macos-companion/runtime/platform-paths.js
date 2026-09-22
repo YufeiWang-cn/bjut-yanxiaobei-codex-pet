@@ -16,11 +16,16 @@ function macCodexCandidates(env = process.env, home = os.homedir()) {
 function desktopLogDirectories(platform = process.platform, env = process.env, home = os.homedir(), now = Date.now()) {
   const bases = env.CODEX_LOG_DIR ? [env.CODEX_LOG_DIR] : platform === 'darwin'
     ? ['Codex','com.openai.codex','ChatGPT','com.openai.chat'].map(name => path.join(home,'Library','Logs',name))
-    : env.LOCALAPPDATA ? [path.join(env.LOCALAPPDATA,'Codex','Logs')] : [];
+    : [
+      env.LOCALAPPDATA && path.join(env.LOCALAPPDATA,'Codex','Logs'),
+      env.LOCALAPPDATA && path.join(env.LOCALAPPDATA,'OpenAI','Codex','Logs'),
+      env.APPDATA && path.join(env.APPDATA,'Codex','Logs'),
+      env.APPDATA && path.join(env.APPDATA,'OpenAI','Codex','Logs'),
+    ].filter(Boolean);
   const dates = [0,1].map(days => {
     const d = new Date(now-days*86400000);
     return [String(d.getFullYear()),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')];
   });
-  return bases.flatMap(base => [base, ...dates.map(parts=>path.join(base,...parts))]);
+  return [...new Set(bases.flatMap(base => [base, ...dates.map(parts=>path.join(base,...parts))]))];
 }
 module.exports = { dataDirectory, macCodexCandidates, desktopLogDirectories };

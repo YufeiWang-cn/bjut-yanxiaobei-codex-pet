@@ -59,6 +59,9 @@ test('Mac log fallback and override include flat and dated paths',()=>{
   const list=paths.desktopLogDirectories('darwin',{CODEX_LOG_DIR:'logs'},'/Users/test',new Date(2026,8,3).getTime());
   assert.deepEqual(list,['logs',path.join('logs','2026','09','03'),path.join('logs','2026','09','02')]);
   assert.ok(paths.desktopLogDirectories('darwin',{},'/Users/test').some(p=>p.includes(path.join('Library','Logs','Codex'))));
+  const windows=paths.desktopLogDirectories('win32',{LOCALAPPDATA:'C:/Local',APPDATA:'C:/Roaming'},'C:/Users/test');
+  assert.ok(windows.some(p=>p.includes(path.join('OpenAI','Codex','Logs'))));
+  assert.ok(windows.some(p=>p.includes(path.join('Roaming','Codex','Logs'))));
 });
 test('all 63 bundled resources match their checksums and shared source',()=>{
   const manifest=JSON.parse(fs.readFileSync(path.join(root,'assets/manifest.json')));

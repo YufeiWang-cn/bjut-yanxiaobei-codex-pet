@@ -40,4 +40,5 @@ test('renderer isolation, CSP and restricted navigation stay enabled',()=>{
   for(const flag of ['contextIsolation:true','sandbox:true','nodeIntegration:false','webSecurity:true'])assert.ok(main.includes(flag));
   assert.ok(main.includes("setWindowOpenHandler(()=>({action:'deny'}))"));assert.ok(main.includes('senderFrame?.url!==entry'));
   assert.ok(html.includes("default-src 'none'"));assert.ok(!renderer.includes('innerHTML'));assert.ok(!html.includes('unsafe-inline'));
+  assert.match(renderer,/task\.kindLabel\|\|'Codex'/,'Task rows must display the Codex source label');
 });

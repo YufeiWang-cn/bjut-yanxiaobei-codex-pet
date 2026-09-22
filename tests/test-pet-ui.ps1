@@ -85,14 +85,15 @@ $clickArgs=[pscustomobject]@{ChangedButton=[Windows.Input.MouseButton]::Left;Cli
 & $beginDrag $petImage $clickArgs
 Assert ($script:openCount -eq 1 -and $clickArgs.Handled) 'Double-click did not open Codex'
 $items=@(
-    [pscustomobject]@{id=$threadId;title='等待你的确认';state='waiting';label='需要确认';updatedAt=1},
-    [pscustomobject]@{id='failed';title='出现错误的任务';state='failed';label='出错';updatedAt=1},
-    [pscustomobject]@{id='ready';title='桌宠界面检查已完成';state='ready';label='已完成';updatedAt=1},
-    [pscustomobject]@{id='active';title='很长的中文任务名称会显示省略号且不挤压状态';state='active';label='执行中';updatedAt=1}
+    [pscustomobject]@{id=$threadId;title='等待你的确认';state='waiting';label='需要确认';kind='codex';kindLabel='Codex';updatedAt=1},
+    [pscustomobject]@{id='failed';title='出现错误的任务';state='failed';label='出错';kind='codex';kindLabel='Codex';updatedAt=1},
+    [pscustomobject]@{id='ready';title='桌宠界面检查已完成';state='ready';label='已完成';kind='codex';kindLabel='Codex';updatedAt=1},
+    [pscustomobject]@{id='active';title='很长的中文任务名称会显示省略号且不挤压状态';state='active';label='执行中';kind='codex';kindLabel='Codex';updatedAt=1}
 )
 Update-TaskList $items
 Assert ($taskListPanel.Children.Count -eq 4) 'Task count incorrect'
 $firstRow=$taskListPanel.Children[0]
+Assert ($firstRow.Content.Children[1].Text -eq 'Codex · 等待你的确认') 'Codex task kind is not visible'
 $firstRow.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.Button]::ClickEvent))
 Assert ($script:openedThread -eq $threadId) 'Task row did not navigate to its own thread'
 $items[0].updatedAt=2

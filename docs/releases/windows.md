@@ -1,10 +1,10 @@
 # BJUT 燕小北 · Windows 独立增强版
 
-当前源码 **0.2.4**。第一次安装请先双击本包根目录 **START-HERE.html**；它会用浏览器打开逐步说明，无需开发工具。也可查看 docs/BEGINNER.md。版本号见 VERSION.txt。
+当前源码 **0.2.5**。第一次安装请先双击本包根目录 **START-HERE.html**；它会用浏览器打开逐步说明，无需开发工具。也可查看 docs/BEGINNER.md。版本号见 VERSION.txt。
 
 一个带额度气泡和任务活动面板的独立桌宠。无需安装原生素材版；需要 Windows、已登录的 Codex 桌面客户端和 Node.js。
 
-当前版本 0.2.4 新增右键“检查更新”与启动时发布提醒，可选择前往 GitHub、忽略此版本或下次启动再提醒。更新查询跟随系统代理并优先使用官方发布订阅，避免共享代理 IP 的 API 限流；固定代理和直连减少了额外进程启动时间。短暂自动审批不会闪现等待。卸载先关闭桌宠，再运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\windows-companion\Uninstall.ps1 -Confirm:$false`，最后删除解压文件夹。详见 docs/INSTALL.md。
+当前版本 0.2.5 修复部分电脑任务始终空闲，兼容更多日志目录和会话来源，并在日志缺失时从最近本机会话发现正在运行的顶层 Codex 任务。任务活动只跟踪 Codex，普通 ChatGPT 聊天不读取、不展示；任务行保留 `Codex` 来源标识。更新检查、审批识别和卸载功能继续保留。卸载先关闭桌宠，再运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\windows-companion\Uninstall.ps1 -Confirm:$false`，最后删除解压文件夹。详见 docs/INSTALL.md。
 
 ## 快速开始
 
